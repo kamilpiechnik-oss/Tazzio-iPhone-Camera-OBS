@@ -3,6 +3,10 @@ name: Tazzio iPhone Camera Windows Build
 on:
   push:
     branches: [main]
+    paths:
+      - "obs-plugin/**"
+      - "installer/**"
+      - ".github/workflows/build.yml"
   workflow_dispatch:
 
 permissions:
