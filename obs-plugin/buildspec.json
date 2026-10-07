@@ -34,7 +34,7 @@
   "platformConfig": { "macos": { "bundleId": "pl.tazzio.iphonecamera" } },
   "name": "tazzio-iphone-camera",
   "displayName": "Tazzio iPhone Camera",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "author": "Tazzio",
   "website": "https://tazzio.pl/pluginy/iphone-camera-obs/",
   "email": ""

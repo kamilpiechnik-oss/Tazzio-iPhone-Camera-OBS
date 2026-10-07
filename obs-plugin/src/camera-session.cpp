@@ -59,13 +59,17 @@ QUrl CameraSession::api_url(const QString &path) const
     return url;
 }
 
-void CameraSession::create_pairing()
+void CameraSession::create_pairing(const QString &mode)
 {
     disconnect_session();
     emit statusChanged(QStringLiteral("Tworzenie prywatnej sesji kamery…"));
     QNetworkRequest request(api_url(QStringLiteral("/camera/sessions")));
     request.setHeader(QNetworkRequest::ContentTypeHeader, QStringLiteral("application/json"));
-    auto *reply = network_->post(request, QByteArrayLiteral("{}"));
+    const auto requested_mode = mode == QStringLiteral("internet") ? QStringLiteral("internet") : QStringLiteral("lan");
+    const auto body = QJsonDocument(QJsonObject{{QStringLiteral("mode"), requested_mode},
+                                                 {QStringLiteral("client_version"), QStringLiteral("1.0.3")}})
+                          .toJson(QJsonDocument::Compact);
+    auto *reply = network_->post(request, body);
     connect(reply, &QNetworkReply::finished, this, [this, reply] {
         const auto object = QJsonDocument::fromJson(reply->readAll()).object();
         if (reply->error() != QNetworkReply::NoError) {
@@ -75,6 +79,8 @@ void CameraSession::create_pairing()
         }
         socket_token_ = object.value(QStringLiteral("socket_token")).toString();
         pairing_url_ = object.value(QStringLiteral("pairing_url")).toString();
+        const auto receiver_url = object.value(QStringLiteral("receiver_url")).toString();
+        const auto response_mode = object.value(QStringLiteral("mode")).toString();
         ice_servers_.clear();
         for (const auto server_value : object.value(QStringLiteral("ice_servers")).toArray()) {
             const auto server = server_value.toObject();
@@ -83,16 +89,14 @@ void CameraSession::create_pairing()
             for (const auto url : server.value(QStringLiteral("urls")).toArray())
                 ice_servers_.push_back({url.toString().toStdString(), username, credential});
         }
-        if (socket_token_.isEmpty() || pairing_url_.isEmpty() || ice_servers_.empty()) {
-            emit errorOccurred(QStringLiteral("Serwer nie zwrócił kompletnej konfiguracji TURN."));
+        if (pairing_url_.isEmpty() || receiver_url.isEmpty() || response_mode.isEmpty()) {
+            emit errorOccurred(QStringLiteral("Serwer nie zwrócił kompletnej konfiguracji kamery."));
             reply->deleteLater();
             return;
         }
-        transport_->configure(ice_servers_);
-        transport_->start(false, true);
-        emit pairingReady(pairing_url_, object.value(QStringLiteral("pair_expires_in")).toInt(120));
+        emit pairingReady(pairing_url_, receiver_url, response_mode,
+                          object.value(QStringLiteral("pair_expires_in")).toInt(120));
         emit statusChanged(QStringLiteral("Zeskanuj kod QR i uruchom kamerę w Safari."));
-        open_signaling();
         reply->deleteLater();
     });
 }

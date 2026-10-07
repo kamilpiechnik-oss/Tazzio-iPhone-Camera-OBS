@@ -52,14 +52,34 @@ export function createCameraServer(config = {}) {
     Object.entries(headers).forEach(([key, value]) => res.setHeader(key, value));
     const url = new URL(req.url, 'http://localhost');
     try {
-      if (req.method === 'GET' && url.pathname === '/api/health') return json(res, 200, { status: 'ok', product: 'tazzio-iphone-camera', version: '1.0.2' });
+      if (req.method === 'GET' && url.pathname === '/api/health') return json(res, 200, { status: 'ok', product: 'tazzio-iphone-camera', version: '1.0.3' });
       if (req.method === 'POST' && url.pathname === '/api/camera/sessions') {
         if (!cfg.turnSecret) return fail(res, 503, 'turn_unconfigured', 'TURN nie jest skonfigurowany.');
+        const body = await readBody(req);
+        const mode = body.mode === 'internet' ? 'internet' : 'lan';
+        const browserReceiver = body.client_version === '1.0.3';
         const id = randomId();
-        sessions.set(id, { expiresAt: Date.now() + cfg.sessionTtl * 1000, paired: false });
+        sessions.set(id, { expiresAt: Date.now() + cfg.sessionTtl * 1000, paired: false, mode, browserReceiver });
         const pairToken = signToken({ type: 'camera-pair', sub: id }, cfg.tokenSecret, cfg.pairTtl);
         const socketToken = signToken({ type: 'camera-socket', sub: id, role: 'receiver' }, cfg.tokenSecret, cfg.sessionTtl);
-        return json(res, 201, { pairing_url: `${cfg.publicBaseUrl}/camera/${encodeURIComponent(pairToken)}`, socket_token: socketToken, pair_expires_in: cfg.pairTtl, session_expires_in: cfg.sessionTtl, ice_servers: iceServers(id) });
+        const response = {
+          pairing_url: `${cfg.publicBaseUrl}/camera/${encodeURIComponent(pairToken)}`,
+          receiver_url: `${cfg.publicBaseUrl}/camera-receiver/${encodeURIComponent(socketToken)}`,
+          mode, pair_expires_in: cfg.pairTtl, session_expires_in: cfg.sessionTtl,
+        };
+        if (!browserReceiver) {
+          response.socket_token = socketToken;
+          response.ice_servers = iceServers(id);
+        }
+        return json(res, 201, response);
+      }
+      if (req.method === 'POST' && url.pathname === '/api/camera/config') {
+        const body = await readBody(req);
+        let token;
+        try { token = verifyToken(body.socket_token, cfg.tokenSecret, 'camera-socket'); } catch { return fail(res, 401, 'invalid_socket_token', 'Sesja kamery wygasła.'); }
+        const session = getSession(token.sub);
+        if (!session) return fail(res, 410, 'session_expired', 'Sesja kamery wygasła.');
+        return json(res, 200, { mode: session.mode, ice_servers: session.mode === 'internet' ? iceServers(token.sub).filter(server => server.urls.some(item => item.startsWith('turn:'))) : [] });
       }
       if (req.method === 'POST' && url.pathname === '/api/camera/pair') {
         const body = await readBody(req);
@@ -69,7 +89,10 @@ export function createCameraServer(config = {}) {
         if (!session || session.paired) return fail(res, 410, 'pair_unavailable', 'Kod QR wygasł albo został już użyty.');
         session.paired = true;
         const socketToken = signToken({ type: 'camera-socket', sub: token.sub, role: 'sender' }, cfg.tokenSecret, cfg.sessionTtl);
-        return json(res, 200, { socket_token: socketToken, session_expires_in: cfg.sessionTtl, ice_servers: iceServers(token.sub) });
+        const peerIce = session.browserReceiver
+          ? session.mode === 'internet' ? iceServers(token.sub).filter(server => server.urls.some(item => item.startsWith('turn:'))) : []
+          : iceServers(token.sub);
+        return json(res, 200, { socket_token: socketToken, mode: session.mode, session_expires_in: cfg.sessionTtl, ice_servers: peerIce });
       }
       const download = url.pathname.match(/^\/downloads\/(Tazzio-iPhone-Camera-(?:1\.0\.2-windows-x64\.zip|Setup-1\.0\.2\.exe))$/);
       if (req.method === 'GET' && download) {
@@ -81,7 +104,8 @@ export function createCameraServer(config = {}) {
       }
       let file = url.pathname === '/' ? 'index.html' : url.pathname.slice(1);
       if (/^camera\/[^/]+$/.test(file)) file = 'camera.html';
-      if (!['index.html', 'styles.css', 'camera.html', 'camera.css', 'camera.js'].includes(file)) return fail(res, 404, 'not_found', 'Nie znaleziono strony.');
+      if (/^camera-receiver\/[^/]+$/.test(file)) file = 'receiver.html';
+      if (!['index.html', 'styles.css', 'camera.html', 'camera.css', 'camera.js', 'receiver.html', 'receiver.js'].includes(file)) return fail(res, 404, 'not_found', 'Nie znaleziono strony.');
       const filePath = path.join(frontend, file);
       if (!fs.existsSync(filePath)) return fail(res, 404, 'not_found', 'Nie znaleziono strony.');
       const stat = fs.statSync(filePath);

@@ -6,11 +6,11 @@ Samodzielny plugin OBS, który odbiera obraz i opcjonalny dźwięk z Safari na i
 
 1. Zainstaluj plugin i uruchom OBS.
 2. Otwórz `Doki -> Tazzio iPhone Camera`.
-3. Utwórz kod QR i zeskanuj go iPhonem.
-4. W Safari wybierz tryb `Wi-Fi / LAN` dla bezpośredniego przesyłu w tej samej sieci albo `Sieć komórkowa / Internet` dla wymuszonego przekaźnika TURN na VPS.
+3. W Docku wybierz `Wi-Fi / LAN` dla bezpośredniego przesyłu w tej samej sieci albo `Sieć komórkowa / Internet` dla wymuszonego przekaźnika TURN na VPS.
+4. Utwórz kod QR i zeskanuj go iPhonem.
 5. Wybierz aparat, profil jakości i FPS, a następnie uruchom kamerę.
 
-Domyślny profil `BALANCED` odpowiada sprawdzonej konfiguracji wcześniejszej aplikacji LAN: 1080p, 60 FPS i limit 12 Mb/s. `HIGH QUALITY` używa 1080p, 30 FPS i 16 Mb/s. Safari i sprzęt iPhone'a mogą ograniczyć faktycznie osiąganą rozdzielczość lub liczbę klatek.
+W obu trybach plugin tworzy źródło Przeglądarka w OBS, dzięki czemu odbiór i dekodowanie korzystają z tego samego toru Chromium/WebRTC co wcześniejsza aplikacja LAN. W trybie LAN VPS obsługuje tylko jednorazowe parowanie, a media płyną bezpośrednio z iPhone'a do komputera. Domyślny profil `BALANCED` to 1080p, 60 FPS i limit 12 Mb/s. `HIGH QUALITY` używa 1080p, 30 FPS i 16 Mb/s. Safari i sprzęt iPhone'a mogą ograniczyć faktycznie osiąganą rozdzielczość lub liczbę klatek.
 
 Plugin jest publikowany pod `https://tazzio.pl/pluginy/iphone-camera-obs/`, a jego wydzielony backend korzysta z technicznych tras `tazzio.pl`. TURN może być współdzielony infrastrukturalnie z innymi usługami, ale sesje, tokeny, backend, instalator i branding są oddzielne.
 

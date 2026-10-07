@@ -1,12 +1,12 @@
 #include "camera-dock.hpp"
 #include "camera-session.hpp"
-#include "media-decoder.hpp"
 
 #include <obs-frontend-api.h>
 #include <obs-module.h>
 
 #include <QApplication>
 #include <QClipboard>
+#include <QComboBox>
 #include <QGuiApplication>
 #include <QHBoxLayout>
 #include <QImage>
@@ -18,7 +18,6 @@
 #include <QSettings>
 #include <QScrollArea>
 #include <QSizePolicy>
-#include <QTimer>
 #include <QUrl>
 #include <QVBoxLayout>
 #include <QWidget>
@@ -50,33 +49,45 @@ QPixmap qr_pixmap(const QString &value, int target_size)
     return QPixmap::fromImage(image);
 }
 
-bool ensure_camera_source()
+bool ensure_camera_source(const QString &receiver_url)
 {
     constexpr const char *source_name = "Tazzio iPhone Camera";
     if (auto *existing = obs_get_source_by_name(source_name)) {
+        const auto *source_id = obs_source_get_id(existing);
+        if (source_id && std::string(source_id) == "browser_source") {
+            auto *settings = obs_source_get_settings(existing);
+            obs_data_set_string(settings, "url", receiver_url.toUtf8().constData());
+            obs_data_set_int(settings, "width", 1920);
+            obs_data_set_int(settings, "height", 1080);
+            obs_data_set_bool(settings, "shutdown", false);
+            obs_data_set_bool(settings, "restart_when_active", false);
+            obs_data_set_bool(settings, "reroute_audio", true);
+            obs_source_update(existing, settings);
+            obs_data_release(settings);
+            obs_source_release(existing);
+            return true;
+        }
+        obs_source_remove(existing);
         obs_source_release(existing);
-        return true;
     }
     auto *scene_source = obs_frontend_get_current_scene();
     if (!scene_source)
         return false;
     auto *scene = obs_scene_from_source(scene_source);
-    auto *source = obs_source_create("tazzio_iphone_camera", source_name, nullptr, nullptr);
+    auto *settings = obs_data_create();
+    obs_data_set_string(settings, "url", receiver_url.toUtf8().constData());
+    obs_data_set_int(settings, "width", 1920);
+    obs_data_set_int(settings, "height", 1080);
+    obs_data_set_bool(settings, "shutdown", false);
+    obs_data_set_bool(settings, "restart_when_active", false);
+    obs_data_set_bool(settings, "reroute_audio", true);
+    auto *source = obs_source_create("browser_source", source_name, settings, nullptr);
+    obs_data_release(settings);
     const auto added = scene && source && obs_scene_add(scene, source) != nullptr;
     if (source)
         obs_source_release(source);
     obs_source_release(scene_source);
     return added;
-}
-
-QString route_name(const tazzio::TransportStats &stats)
-{
-    const auto candidates = QString::fromStdString(stats.local_candidate + " " + stats.remote_candidate);
-    if (candidates.contains(QStringLiteral(" typ relay")))
-        return QStringLiteral("TURN Relay");
-    if (!candidates.trimmed().isEmpty())
-        return QStringLiteral("Direct P2P");
-    return QStringLiteral("ustalanie trasy");
 }
 
 } // namespace
@@ -95,17 +106,20 @@ void register_iphone_camera_dock()
     layout->setSizeConstraint(QLayout::SetNoConstraint);
     dock->setWidget(content);
     auto *session = new tazzio::CameraSession(dock);
-    session->transport()->on_video(tazzio::route_camera_video);
-    session->transport()->on_audio(tazzio::route_camera_audio);
 
     auto *title = new QLabel(QStringLiteral("TAZZIO · IPHONE CAMERA"));
     auto *description = new QLabel(QStringLiteral(
-        "Połącz iPhone'a z OBS przez internet albo sieć komórkową. Kod QR jest jednorazowy i wygasa po 2 minutach."));
+        "Wybierz trasę w Docku. LAN przesyła obraz bezpośrednio do źródła Przeglądarka w OBS; Internet używa przekaźnika VPS."));
     description->setWordWrap(true);
     auto *status = new QLabel(QStringLiteral("Utwórz kod QR, aby rozpocząć."));
     status->setWordWrap(true);
     auto *stats = new QLabel(QStringLiteral("Media: nieaktywne"));
     stats->setWordWrap(true);
+
+    auto *mode_label = new QLabel(QStringLiteral("Tryb połączenia"));
+    auto *mode = new QComboBox;
+    mode->addItem(QStringLiteral("Wi‑Fi / LAN — bezpośrednio"), QStringLiteral("lan"));
+    mode->addItem(QStringLiteral("Sieć komórkowa / Internet — przez VPS"), QStringLiteral("internet"));
 
     auto *qr = new QLabel;
     qr->setAlignment(Qt::AlignCenter);
@@ -128,6 +142,8 @@ void register_iphone_camera_dock()
     layout->addWidget(description);
     layout->addWidget(status);
     layout->addWidget(stats);
+    layout->addWidget(mode_label);
+    layout->addWidget(mode);
     layout->addWidget(qr);
     layout->addLayout(url_row);
     layout->addWidget(create);
@@ -135,17 +151,14 @@ void register_iphone_camera_dock()
     layout->addStretch();
 
     QObject::connect(create, &QPushButton::clicked, dock, [=] {
-        if (!ensure_camera_source()) {
-            status->setText(QStringLiteral("Nie udało się dodać źródła do aktualnej sceny OBS."));
-            return;
-        }
         create->setEnabled(false);
         disconnect->setEnabled(true);
         copy->setEnabled(false);
         qr->setText(QStringLiteral("Generowanie kodu…"));
         qr->setPixmap({});
         url->clear();
-        session->create_pairing();
+        mode->setEnabled(false);
+        session->create_pairing(mode->currentData().toString());
     });
     QObject::connect(copy, &QPushButton::clicked, dock, [=] {
         QGuiApplication::clipboard()->setText(url->text());
@@ -161,13 +174,23 @@ void register_iphone_camera_dock()
         qr->setText(QStringLiteral("Kod QR pojawi się tutaj"));
         status->setText(QStringLiteral("Kamera rozłączona."));
         stats->setText(QStringLiteral("Media: nieaktywne"));
+        mode->setEnabled(true);
     });
     QObject::connect(session, &tazzio::CameraSession::pairingReady, dock,
-                     [=](const QString &pairing_url, int) {
+                     [=](const QString &pairing_url, const QString &receiver_url, const QString &selected_mode, int) {
+                         if (!ensure_camera_source(receiver_url)) {
+                             status->setText(QStringLiteral("Nie udało się dodać źródła Przeglądarka do aktualnej sceny OBS."));
+                             create->setEnabled(true);
+                             mode->setEnabled(true);
+                             return;
+                         }
                          url->setText(pairing_url);
                          qr->setPixmap(qr_pixmap(pairing_url, 230));
                          copy->setEnabled(true);
                          create->setEnabled(true);
+                         stats->setText(selected_mode == QStringLiteral("internet")
+                                            ? QStringLiteral("Trasa: Internet przez VPS TURN · odbiornik OBS Browser Source")
+                                            : QStringLiteral("Trasa: LAN bezpośrednio · odbiornik OBS Browser Source"));
                      });
     QObject::connect(session, &tazzio::CameraSession::statusChanged, status, &QLabel::setText);
     QObject::connect(session, &tazzio::CameraSession::peerReady, dock, [=](bool ready) {
@@ -177,24 +200,8 @@ void register_iphone_camera_dock()
     QObject::connect(session, &tazzio::CameraSession::errorOccurred, dock, [=](const QString &message) {
         status->setText(QStringLiteral("Błąd: ") + message);
         create->setEnabled(true);
+        mode->setEnabled(true);
     });
-
-    auto *timer = new QTimer(dock);
-    timer->setInterval(1000);
-    QObject::connect(timer, &QTimer::timeout, dock, [=] {
-        const auto transport = session->transport()->stats();
-        const auto decode = tazzio::camera_decode_stats();
-        if (!transport.bytes_received && !decode.video_frames)
-            return;
-        stats->setText(
-            QStringLiteral("Media: %1 · trasa %2 · odebrano %3 MB · klatki %4 · błędy dekodera %5")
-                .arg(session->transport()->connected() ? QStringLiteral("połączone") : QStringLiteral("łączenie"))
-                .arg(route_name(transport))
-                .arg(transport.bytes_received / 1024.0 / 1024.0, 0, 'f', 1)
-                .arg(decode.video_frames)
-                .arg(decode.video_errors));
-    });
-    timer->start();
 
     obs_frontend_add_dock_by_id("tazzio-iphone-camera-dock", "Tazzio iPhone Camera", dock);
 }

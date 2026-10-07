@@ -25,12 +25,12 @@ public:
     ~CameraSession() override;
 
     void set_server(QUrl server);
-    void create_pairing();
+    void create_pairing(const QString &mode);
     void disconnect_session();
     [[nodiscard]] PeerTransport *transport();
 
 signals:
-    void pairingReady(QString url, int expiresIn);
+    void pairingReady(QString pairingUrl, QString receiverUrl, QString mode, int expiresIn);
     void statusChanged(QString status);
     void peerReady(bool ready);
     void errorOccurred(QString message);

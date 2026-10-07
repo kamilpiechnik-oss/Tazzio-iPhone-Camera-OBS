@@ -40,6 +40,6 @@ bool obs_module_load(void)
 #endif
     obs_register_source(&tazzio_iphone_camera_source_info);
     register_iphone_camera_dock();
-    blog(LOG_INFO, "[Tazzio iPhone Camera] loaded version 1.0.2");
+    blog(LOG_INFO, "[Tazzio iPhone Camera] loaded version 1.0.3");
     return true;
 }
