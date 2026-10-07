@@ -11,10 +11,13 @@
 #include <QHBoxLayout>
 #include <QImage>
 #include <QLabel>
+#include <QLayout>
 #include <QLineEdit>
 #include <QPixmap>
 #include <QPushButton>
 #include <QSettings>
+#include <QScrollArea>
+#include <QSizePolicy>
 #include <QTimer>
 #include <QUrl>
 #include <QVBoxLayout>
@@ -80,8 +83,17 @@ QString route_name(const tazzio::TransportStats &stats)
 
 void register_iphone_camera_dock()
 {
-    auto *dock = new QWidget;
-    auto *layout = new QVBoxLayout(dock);
+    auto *dock = new QScrollArea;
+    dock->setWidgetResizable(true);
+    dock->setFrameShape(QFrame::NoFrame);
+    dock->setMinimumSize(0, 0);
+    dock->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Ignored);
+
+    auto *content = new QWidget;
+    content->setMinimumSize(0, 0);
+    auto *layout = new QVBoxLayout(content);
+    layout->setSizeConstraint(QLayout::SetNoConstraint);
+    dock->setWidget(content);
     auto *session = new tazzio::CameraSession(dock);
     session->transport()->on_video(tazzio::route_camera_video);
     session->transport()->on_audio(tazzio::route_camera_audio);
@@ -97,7 +109,8 @@ void register_iphone_camera_dock()
 
     auto *qr = new QLabel;
     qr->setAlignment(Qt::AlignCenter);
-    qr->setMinimumHeight(290);
+    qr->setMinimumSize(0, 0);
+    qr->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
     qr->setText(QStringLiteral("Kod QR pojawi się tutaj"));
     auto *url = new QLineEdit;
     url->setReadOnly(true);
@@ -152,7 +165,7 @@ void register_iphone_camera_dock()
     QObject::connect(session, &tazzio::CameraSession::pairingReady, dock,
                      [=](const QString &pairing_url, int) {
                          url->setText(pairing_url);
-                         qr->setPixmap(qr_pixmap(pairing_url, 300));
+                         qr->setPixmap(qr_pixmap(pairing_url, 230));
                          copy->setEnabled(true);
                          create->setEnabled(true);
                      });

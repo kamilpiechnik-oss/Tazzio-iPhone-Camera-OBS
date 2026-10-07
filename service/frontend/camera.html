@@ -11,7 +11,7 @@
 <main>
   <header><span class="brand">TAZZIO</span><span>iPhone Camera</span></header>
   <section class="hero">
-    <p class="eyebrow">IPHONE → OBS · WEBRTC</p>
+    <p class="eyebrow">IPHONE → OBS · WEBRTC <span id="mode-pill" class="mode-pill">LAN DIRECT</span></p>
     <h1>Kamera jest gotowa do połączenia.</h1>
     <p id="status" class="status">Sprawdzanie jednorazowego kodu…</p>
   </section>
@@ -22,23 +22,32 @@
   </section>
 
   <section class="controls">
+    <label class="wide">Połączenie
+      <select id="connection">
+        <option value="lan" selected>Wi‑Fi / LAN — bezpośrednio</option>
+        <option value="internet">Sieć komórkowa / Internet — przez VPS</option>
+      </select>
+      <small id="mode-note"></small>
+    </label>
     <label>Obiektyw
       <select id="lens">
         <option value="environment">Tylna kamera</option>
         <option value="user">Przednia kamera</option>
       </select>
     </label>
-    <label>Jakość
+    <label>Profil jakości
       <select id="quality">
-        <option value="1920x1080:12000000">1080p · wysoka</option>
-        <option value="1920x1080:7000000" selected>1080p · standard</option>
-        <option value="1280x720:4500000">720p · stabilna</option>
+        <option value="lowLatency">LOW LATENCY · 1080p / 8 Mb/s</option>
+        <option value="balanced" selected>BALANCED · 1080p / 12 Mb/s</option>
+        <option value="highQuality">HIGH QUALITY · 1080p / 16 Mb/s</option>
+        <option value="weakNetwork">WEAK NETWORK · 720p / 4 Mb/s</option>
       </select>
     </label>
     <label>FPS
       <select id="fps">
+        <option value="0" selected>Z profilu</option>
         <option value="24">24</option>
-        <option value="30" selected>30</option>
+        <option value="30">30</option>
         <option value="60">60</option>
         <option value="120">120</option>
         <option value="240">240</option>
@@ -50,7 +59,7 @@
   <button id="start" disabled>Uruchom kamerę</button>
   <button id="stop" class="secondary" hidden>Zatrzymaj transmisję</button>
   <p id="stats" class="stats"></p>
-  <p class="notice">Pozostaw Safari otwarte i nie blokuj ekranu. Dostępne FPS zależą od modelu iPhone’a, wybranego obiektywu i połączenia.</p>
+  <p class="notice">W trybie LAN komputer i iPhone muszą być w tej samej sieci Wi‑Fi. Tryb Internet wymusza trasę przez VPS i działa również przez sieć komórkową. Pozostaw Safari otwarte i nie blokuj ekranu.</p>
 </main>
 <script src="/camera.js" type="module"></script>
 </body>

@@ -1,77 +1,34 @@
 const $=selector=>document.querySelector(selector);
-const state={pairToken:'',socketToken:'',iceServers:[],ws:null,pc:null,stream:null,statsTimer:null,wakeLock:null,ready:false};
-
+const profiles={lowLatency:{width:1920,height:1080,fps:60,bitrate:8000000},balanced:{width:1920,height:1080,fps:60,bitrate:12000000},highQuality:{width:1920,height:1080,fps:30,bitrate:16000000},weakNetwork:{width:1280,height:720,fps:30,bitrate:4000000}};
+const state={pairToken:'',socketToken:'',iceServers:[],ws:null,pc:null,stream:null,statsTimer:null,wakeLock:null,ready:false,previousStats:{at:0,bytes:0}};
 function setStatus(message,connected=false){$('#status').textContent=message;$('#status').classList.toggle('connected',connected)}
 function apiError(data,fallback){return data?.message||data?.error||fallback}
 function socketUrl(token){const url=new URL('/camera-ws',location.origin);url.protocol=location.protocol==='https:'?'wss:':'ws:';url.searchParams.set('token',token);return url}
-
+function activeProfile(){return profiles[$('#quality').value]||profiles.balanced}
+function requestedFps(){return Number($('#fps').value)||activeProfile().fps}
+function selectedMode(){return $('#connection').value}
+function selectedIceServers(){const prefix=selectedMode()==='lan'?'stun:':'turn';return state.iceServers.filter(server=>[].concat(server.urls||server.url||[]).some(url=>String(url).startsWith(prefix)))}
 async function pair(){
   const parts=location.pathname.split('/').filter(Boolean);state.pairToken=parts[0]==='camera'?parts[1]||'':'';
   if(!state.pairToken){setStatus('Nieprawidłowy kod QR.');return}
-  try{
-    const response=await fetch('/api/camera/pair',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({pair_token:decodeURIComponent(state.pairToken)})});
-    const data=await response.json();if(!response.ok)throw new Error(apiError(data,'Nie udało się sparować kamery.'));
-    state.socketToken=data.socket_token;state.iceServers=data.ice_servers||[];
-    history.replaceState(null,'','/camera/paired');
-    state.ready=true;$('#start').disabled=false;setStatus('Kod zaakceptowany. Uruchom kamerę i pozostaw Safari otwarte.');
-  }catch(error){setStatus(error.message)}
+  try{const response=await fetch('/api/camera/pair',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({pair_token:decodeURIComponent(state.pairToken)})});const data=await response.json();if(!response.ok)throw new Error(apiError(data,'Nie udało się sparować kamery.'));state.socketToken=data.socket_token;state.iceServers=data.ice_servers||[];history.replaceState(null,'','/camera/paired');restoreChoices();state.ready=true;$('#start').disabled=false;updateModeNote();setStatus('Kod zaakceptowany. Wybierz tryb połączenia i uruchom kamerę.')}catch(error){setStatus(error.message)}
 }
-
-function selectedVideoConstraints(){
-  const [width,height]=String($('#quality').value).split(':')[0].split('x').map(Number);const fps=Number($('#fps').value);
-  return {facingMode:{ideal:$('#lens').value},width:{ideal:width},height:{ideal:height},frameRate:{ideal:fps,max:fps}};
-}
-
-async function preferH264(transceiver){
-  if(!transceiver?.setCodecPreferences||!RTCRtpSender.getCapabilities)return;
-  const codecs=RTCRtpSender.getCapabilities('video')?.codecs||[];
-  const h264=codecs.filter(codec=>codec.mimeType.toLowerCase()==='video/h264');
-  const rest=codecs.filter(codec=>codec.mimeType.toLowerCase()!=='video/h264');
-  if(h264.length)transceiver.setCodecPreferences([...h264,...rest]);
-}
-
-async function applyBitrate(){
-  const bitrate=Number(String($('#quality').value).split(':')[1]);const sender=state.pc?.getSenders().find(item=>item.track?.kind==='video');
-  if(!sender)return;const parameters=sender.getParameters();if(!parameters.encodings?.length)parameters.encodings=[{}];parameters.encodings[0].maxBitrate=bitrate;
-  try{await sender.setParameters(parameters)}catch{}
-}
-
+function restoreChoices(){$('#connection').value=localStorage.getItem('tazzioCameraConnection')||'lan';$('#quality').value=localStorage.getItem('tazzioCameraQuality')||'balanced';$('#fps').value=localStorage.getItem('tazzioCameraFps')||'0';$('#lens').value=localStorage.getItem('tazzioCameraLens')||'environment';$('#audio').checked=localStorage.getItem('tazzioCameraAudio')==='true'}
+function saveChoices(){localStorage.setItem('tazzioCameraConnection',selectedMode());localStorage.setItem('tazzioCameraQuality',$('#quality').value);localStorage.setItem('tazzioCameraFps',$('#fps').value);localStorage.setItem('tazzioCameraLens',$('#lens').value);localStorage.setItem('tazzioCameraAudio',String($('#audio').checked))}
+function updateModeNote(){const lan=selectedMode()==='lan';$('#mode-note').textContent=lan?'LAN: obraz idzie bezpośrednio z iPhone’a do komputera. VPS służy tylko do sparowania urządzeń.':'Internet: obraz jest wymuszony przez bezpieczny przekaźnik TURN na VPS — użyj poza domowym Wi‑Fi.';$('#mode-pill').textContent=lan?'LAN DIRECT':'VPS RELAY';$('#mode-pill').classList.toggle('relay',!lan)}
+function selectedVideoConstraints(){const profile=activeProfile();const fps=requestedFps();const lens=$('#lens').value;const video={width:{ideal:profile.width},height:{ideal:profile.height},frameRate:{ideal:fps,max:fps}};if(lens.startsWith('device:'))video.deviceId={exact:lens.slice(7)};else video.facingMode={ideal:lens};return video}
+async function preferH264(transceiver){if(!transceiver?.setCodecPreferences||!RTCRtpSender.getCapabilities)return;const codecs=RTCRtpSender.getCapabilities('video')?.codecs||[];const h264=codecs.filter(codec=>codec.mimeType.toLowerCase()==='video/h264');const rest=codecs.filter(codec=>codec.mimeType.toLowerCase()!=='video/h264');if(h264.length)transceiver.setCodecPreferences([...h264,...rest])}
+async function applyQuality(){const sender=state.pc?.getSenders().find(item=>item.track?.kind==='video');if(!sender)return;const parameters=sender.getParameters();if(!parameters.encodings?.length)parameters.encodings=[{}];parameters.encodings[0].maxBitrate=activeProfile().bitrate;parameters.encodings[0].maxFramerate=requestedFps();parameters.encodings[0].scaleResolutionDownBy=1;parameters.degradationPreference='maintain-resolution';try{await sender.setParameters(parameters)}catch{}}
+async function populateCameras(){const devices=(await navigator.mediaDevices.enumerateDevices()).filter(device=>device.kind==='videoinput');const existing=new Set([...$('#lens').options].map(option=>option.value));devices.forEach((device,index)=>{const value=`device:${device.deviceId}`;if(existing.has(value))return;const option=document.createElement('option');option.value=value;option.textContent=device.label||`Kamera ${index+1}`;$('#lens').append(option)})}
+function updateCapabilities(){const track=state.stream?.getVideoTracks()[0];const caps=track?.getCapabilities?.()||{};const maxFps=Number(caps.frameRate?.max||0);for(const option of $('#fps').options){if(option.value==='0')continue;option.disabled=maxFps>0&&Number(option.value)>maxFps}}
 async function start(){
-  if(!state.ready||state.stream)return;
-  $('#start').disabled=true;setStatus('Uruchamianie kamery…');
-  try{
-    state.stream=await navigator.mediaDevices.getUserMedia({video:selectedVideoConstraints(),audio:$('#audio').checked});
-    $('#preview').srcObject=state.stream;
-    $('#placeholder').hidden=true;
-    state.pc=new RTCPeerConnection({iceServers:state.iceServers});
-    let videoTransceiver;
-    for(const track of state.stream.getTracks()){
-      const sender=state.pc.addTrack(track,state.stream);if(track.kind==='video')videoTransceiver=state.pc.getTransceivers().find(item=>item.sender===sender);
-    }
-    await preferH264(videoTransceiver);await applyBitrate();
-    state.pc.onicecandidate=event=>{if(event.candidate&&state.ws?.readyState===WebSocket.OPEN)state.ws.send(JSON.stringify({type:'ice-candidate',payload:{candidate:event.candidate.candidate,mid:event.candidate.sdpMid}}))};
-    state.pc.onconnectionstatechange=()=>{const value=state.pc?.connectionState||'closed';setStatus(value==='connected'?'Połączono z OBS — transmisja działa.':`WebRTC: ${value}`,value==='connected')};
-    state.ws=new WebSocket(socketUrl(state.socketToken));
-    state.ws.onmessage=async event=>{const message=JSON.parse(event.data);if(message.type==='peer'&&message.ready)await sendOffer();else if(message.type==='answer')await state.pc.setRemoteDescription(message.payload);else if(message.type==='ice-candidate'&&message.payload?.candidate)await state.pc.addIceCandidate({candidate:message.payload.candidate,sdpMid:message.payload.mid})};
-    state.ws.onopen=()=>setStatus('Kamera działa — oczekiwanie na plugin OBS…');
-    state.ws.onclose=()=>{if(state.stream)setStatus('Połączenie z serwerem zostało zamknięte.')};
-    $('#stop').hidden=false;$('#start').hidden=true;await keepAwake();startStats();
-  }catch(error){setStatus(error.name==='NotAllowedError'?'Safari nie otrzymało dostępu do kamery.':error.message);stop()}
+  if(!state.ready||state.stream)return;saveChoices();$('#start').disabled=true;setStatus('Uruchamianie kamery…');
+  try{const audio=$('#audio').checked?{echoCancellation:false,noiseSuppression:false,autoGainControl:false}:false;state.stream=await navigator.mediaDevices.getUserMedia({video:selectedVideoConstraints(),audio});const videoTrack=state.stream.getVideoTracks()[0];if('contentHint'in videoTrack)videoTrack.contentHint='detail';$('#preview').srcObject=state.stream;$('#placeholder').hidden=true;await populateCameras();updateCapabilities();const config={iceServers:selectedIceServers()};if(selectedMode()==='internet')config.iceTransportPolicy='relay';state.pc=new RTCPeerConnection(config);let videoTransceiver;for(const track of state.stream.getTracks()){const sender=state.pc.addTrack(track,state.stream);if(track.kind==='video')videoTransceiver=state.pc.getTransceivers().find(item=>item.sender===sender)}await preferH264(videoTransceiver);state.pc.onicecandidate=event=>{if(event.candidate&&state.ws?.readyState===WebSocket.OPEN)state.ws.send(JSON.stringify({type:'ice-candidate',payload:{candidate:event.candidate.candidate,mid:event.candidate.sdpMid}}))};state.pc.onconnectionstatechange=()=>{const value=state.pc?.connectionState||'closed';setStatus(value==='connected'?`Połączono z OBS — ${selectedMode()==='lan'?'LAN bezpośrednio':'przez VPS TURN'}.`:`WebRTC: ${value}`,value==='connected')};state.ws=new WebSocket(socketUrl(state.socketToken));state.ws.onmessage=async event=>{const message=JSON.parse(event.data);if(message.type==='peer'&&message.ready)await sendOffer();else if(message.type==='answer')await state.pc.setRemoteDescription(message.payload);else if(message.type==='ice-candidate'&&message.payload?.candidate)await state.pc.addIceCandidate({candidate:message.payload.candidate,sdpMid:message.payload.mid})};state.ws.onopen=()=>setStatus('Kamera działa — oczekiwanie na plugin OBS…');state.ws.onclose=()=>{if(state.stream)setStatus('Połączenie z serwerem zostało zamknięte.')};$('#stop').hidden=false;$('#start').hidden=true;lockControls(true);await keepAwake();startStats()}catch(error){setStatus(error.name==='NotAllowedError'?'Safari nie otrzymało dostępu do kamery.':error.message);stop()}
 }
-
-async function sendOffer(){
-  if(!state.pc||state.pc.signalingState!=='stable')return;
-  const offer=await state.pc.createOffer();await state.pc.setLocalDescription(offer);
-  state.ws.send(JSON.stringify({type:'offer',payload:{type:'offer',sdp:offer.sdp}}));
-}
-
+async function sendOffer(){if(!state.pc||state.pc.signalingState!=='stable')return;const offer=await state.pc.createOffer();await state.pc.setLocalDescription(offer);await applyQuality();state.ws.send(JSON.stringify({type:'offer',payload:{type:'offer',sdp:state.pc.localDescription.sdp}}))}
+function lockControls(locked){for(const control of document.querySelectorAll('.controls select,.controls input'))control.disabled=locked}
 async function keepAwake(){try{if('wakeLock'in navigator)state.wakeLock=await navigator.wakeLock.request('screen')}catch{}}
-async function updateStats(){
-  const track=state.stream?.getVideoTracks()[0];if(!track)return;const settings=track.getSettings();let outbound='';
-  const reports=state.pc?await state.pc.getStats():[];reports.forEach(report=>{if(report.type==='outbound-rtp'&&report.kind==='video')outbound=` · wysłano ${Math.round((report.bytesSent||0)/1048576)} MB`});
-  $('#stats').textContent=`${settings.width||'?'}×${settings.height||'?'} · ${Math.round(settings.frameRate||0)} FPS${outbound}`;
-}
-function startStats(){clearInterval(state.statsTimer);state.statsTimer=setInterval(()=>updateStats().catch(()=>{}),1000)}
-function stop(){clearInterval(state.statsTimer);state.statsTimer=null;state.ws?.close();state.ws=null;state.pc?.close();state.pc=null;state.stream?.getTracks().forEach(track=>track.stop());state.stream=null;$('#preview').srcObject=null;$('#placeholder').hidden=false;state.wakeLock?.release?.();state.wakeLock=null;$('#stop').hidden=true;$('#start').hidden=false;$('#start').disabled=!state.ready;setStatus(state.ready?'Transmisja zatrzymana. Możesz uruchomić ją ponownie.':'Transmisja zatrzymana.')}
-
-$('#start').addEventListener('click',start);$('#stop').addEventListener('click',stop);window.addEventListener('pagehide',stop);pair();
+async function updateStats(){const track=state.stream?.getVideoTracks()[0];if(!track)return;const settings=track.getSettings();let outbound,pair,localCandidate,remoteCandidate;const reports=state.pc?await state.pc.getStats():[];reports.forEach(report=>{if(report.type==='outbound-rtp'&&report.kind==='video')outbound=report;if(report.type==='candidate-pair'&&report.state==='succeeded'&&(report.nominated||!pair))pair=report});if(pair)reports.forEach(report=>{if(report.id===pair.localCandidateId)localCandidate=report;if(report.id===pair.remoteCandidateId)remoteCandidate=report});const now=performance.now();let bitrate=0;if(outbound&&state.previousStats.at)bitrate=(outbound.bytesSent-state.previousStats.bytes)*8/(now-state.previousStats.at)/1000;if(outbound)state.previousStats={at:now,bytes:outbound.bytesSent};const relay=localCandidate?.candidateType==='relay'||remoteCandidate?.candidateType==='relay';const route=relay?'VPS TURN':selectedMode()==='lan'?'LAN DIRECT':'DIRECT P2P';const rtt=Math.round((pair?.currentRoundTripTime||0)*1000);$('#stats').textContent=`${settings.width||'?'}×${settings.height||'?'} · ${Math.round(outbound?.framesPerSecond||settings.frameRate||0)} FPS · ${bitrate?bitrate.toFixed(1):'—'} Mb/s · ${route}${rtt?` · ${rtt} ms`:''}`}
+function startStats(){clearInterval(state.statsTimer);state.previousStats={at:0,bytes:0};state.statsTimer=setInterval(()=>updateStats().catch(()=>{}),1000);updateStats().catch(()=>{})}
+function stop(){clearInterval(state.statsTimer);state.statsTimer=null;state.ws?.close();state.ws=null;state.pc?.close();state.pc=null;state.stream?.getTracks().forEach(track=>track.stop());state.stream=null;$('#preview').srcObject=null;$('#placeholder').hidden=false;state.wakeLock?.release?.();state.wakeLock=null;$('#stop').hidden=true;$('#start').hidden=false;$('#start').disabled=!state.ready;lockControls(false);updateCapabilities();setStatus(state.ready?'Transmisja zatrzymana. Możesz zmienić ustawienia i uruchomić ją ponownie.':'Transmisja zatrzymana.')}
+$('#start').addEventListener('click',start);$('#stop').addEventListener('click',stop);$('#connection').addEventListener('change',updateModeNote);window.addEventListener('pagehide',stop);pair();
