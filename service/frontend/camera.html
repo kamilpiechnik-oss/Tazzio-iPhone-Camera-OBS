@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="pl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#080a0f">
+  <title>Tazzio iPhone Camera</title>
+  <link rel="stylesheet" href="/camera.css">
+</head>
+<body>
+<main>
+  <header><span class="brand">TAZZIO</span><span>iPhone Camera</span></header>
+  <section class="hero">
+    <p class="eyebrow">IPHONE → OBS · WEBRTC</p>
+    <h1>Kamera jest gotowa do połączenia.</h1>
+    <p id="status" class="status">Sprawdzanie jednorazowego kodu…</p>
+  </section>
+
+  <section class="preview-card">
+    <video id="preview" autoplay muted playsinline></video>
+    <div id="placeholder">Podgląd pojawi się po uruchomieniu kamery</div>
+  </section>
+
+  <section class="controls">
+    <label>Obiektyw
+      <select id="lens">
+        <option value="environment">Tylna kamera</option>
+        <option value="user">Przednia kamera</option>
+      </select>
+    </label>
+    <label>Jakość
+      <select id="quality">
+        <option value="1920x1080:12000000">1080p · wysoka</option>
+        <option value="1920x1080:7000000" selected>1080p · standard</option>
+        <option value="1280x720:4500000">720p · stabilna</option>
+      </select>
+    </label>
+    <label>FPS
+      <select id="fps">
+        <option value="24">24</option>
+        <option value="30" selected>30</option>
+        <option value="60">60</option>
+        <option value="120">120</option>
+        <option value="240">240</option>
+      </select>
+    </label>
+    <label class="audio"><input id="audio" type="checkbox"> Wyślij również mikrofon</label>
+  </section>
+
+  <button id="start" disabled>Uruchom kamerę</button>
+  <button id="stop" class="secondary" hidden>Zatrzymaj transmisję</button>
+  <p id="stats" class="stats"></p>
+  <p class="notice">Pozostaw Safari otwarte i nie blokuj ekranu. Dostępne FPS zależą od modelu iPhone’a, wybranego obiektywu i połączenia.</p>
+</main>
+<script src="/camera.js" type="module"></script>
+</body>
+</html>

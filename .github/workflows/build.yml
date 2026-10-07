@@ -1,0 +1,61 @@
+name: Tazzio iPhone Camera Windows Build
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows-x64:
+    runs-on: windows-2022
+    defaults:
+      run:
+        shell: pwsh
+        working-directory: obs-plugin
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Configure
+        run: cmake --preset windows-ci-x64
+      - name: Build
+        run: cmake --build --preset windows-ci-x64 --parallel
+      - name: Install plugin layout
+        run: cmake --install build_x64 --prefix release --config RelWithDebInfo
+      - name: Bundle Windows TLS backend
+        run: |
+          $tlsBackend = Get-ChildItem -LiteralPath ".deps" -Recurse -File -Filter "qschannelbackend.dll" | Select-Object -First 1
+          if (-not $tlsBackend) { throw "Qt Schannel TLS backend was not found" }
+          $tlsDir = Join-Path $PWD "release\tazzio-iphone-camera\runtime\tls"
+          New-Item -ItemType Directory -Path $tlsDir -Force | Out-Null
+          Copy-Item -LiteralPath $tlsBackend.FullName -Destination (Join-Path $tlsDir "qschannelbackend.dll") -Force
+      - name: Verify self-contained plugin runtime
+        run: |
+          $runtimeDir = Join-Path $PWD "release\tazzio-iphone-camera\bin\64bit"
+          $plugin = Join-Path $runtimeDir "tazzio-iphone-camera.dll"
+          if (-not (Test-Path -LiteralPath $plugin)) { throw "Plugin DLL is missing" }
+          $tlsBackend = Join-Path $PWD "release\tazzio-iphone-camera\runtime\tls\qschannelbackend.dll"
+          if (-not (Test-Path -LiteralPath $tlsBackend)) { throw "Qt Schannel TLS backend is missing" }
+          $vswhere = Join-Path ${env:ProgramFiles(x86)} "Microsoft Visual Studio\Installer\vswhere.exe"
+          $dumpbin = & $vswhere -latest -products * -find "VC\Tools\MSVC\*\bin\Hostx64\x64\dumpbin.exe" | Select-Object -First 1
+          if (-not $dumpbin) { throw "dumpbin.exe was not found" }
+          $imports = (& $dumpbin /DEPENDENTS $plugin | Out-String)
+          if ($imports -match "libcrypto|libssl") { throw "OpenSSL is dynamically linked" }
+      - name: Package ZIP
+        run: Compress-Archive -Path release\tazzio-iphone-camera -DestinationPath release\Tazzio-iPhone-Camera-1.0.0-windows-x64.zip -Force
+      - name: Build Windows installer
+        run: |
+          $iscc = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path -LiteralPath $iscc)) { throw "Inno Setup compiler not found" }
+          & $iscc "/DBuildRoot=$PWD\release\tazzio-iphone-camera" "/DInstallerOutput=$PWD\release" "..\installer\Tazzio-iPhone-Camera.iss"
+          if ($LASTEXITCODE -ne 0) { throw "Inno Setup failed with exit code $LASTEXITCODE" }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Tazzio-iPhone-Camera-1.0.0-windows-x64-${{ github.sha }}
+          path: |
+            obs-plugin/release/Tazzio-iPhone-Camera-1.0.0-windows-x64.zip
+            obs-plugin/release/Tazzio-iPhone-Camera-Setup-1.0.0.exe
+          if-no-files-found: error

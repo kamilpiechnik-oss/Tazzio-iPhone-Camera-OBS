@@ -1,0 +1,24 @@
+services:
+  app:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8790:8790"
+    environment:
+      HOST: 0.0.0.0
+      PORT: 8790
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL}
+      TOKEN_SECRET: ${TOKEN_SECRET}
+      TURN_SECRET: ${TURN_SECRET}
+      TURN_HOST: ${TURN_HOST}
+    read_only: true
+    tmpfs:
+      - /tmp:size=32m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 256m
+    cpus: 1.0

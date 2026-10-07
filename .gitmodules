@@ -1,0 +1,3 @@
+[submodule "obs-plugin/vendor/libdatachannel"]
+	path = obs-plugin/vendor/libdatachannel
+	url = https://github.com/paullouisageneau/libdatachannel.git

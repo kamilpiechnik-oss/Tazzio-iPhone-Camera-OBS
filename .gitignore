@@ -1,0 +1,9 @@
+.env
+node_modules/
+obs-plugin/.deps/
+obs-plugin/build_x64/
+obs-plugin/release/
+service/frontend/downloads/*.zip
+service/frontend/downloads/*.exe
+*.log
+*.pdb

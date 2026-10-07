@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="pl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="description" content="Tazzio iPhone Camera — użyj iPhone'a jako bezprzewodowej kamery w OBS przez Wi-Fi, LAN lub 5G/LTE.">
+  <title>Tazzio iPhone Camera — kamera z telefonu do OBS</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+<main>
+  <header><span class="brand">TAZZIO</span><span>iPhone Camera</span><span class="pill">1.0.0 BETA</span></header>
+  <section class="hero">
+    <p class="eyebrow">IPHONE → OBS · WEBRTC</p>
+    <h1>Twój iPhone jako bezprzewodowa kamera w OBS.</h1>
+    <p class="lead">Osobny plugin do prywatnej kamery z telefonu. Bez kont, pokoi CoStream i instalowania aplikacji na iPhonie.</p>
+    <a class="button" href="#download">Pobierz dla Windows</a>
+  </section>
+
+  <section id="download" class="section">
+    <p class="eyebrow">POBIERANIE</p>
+    <h2>Tazzio iPhone Camera for OBS</h2>
+    <div class="grid">
+      <article class="card">
+        <span class="tag">ZALECANE</span>
+        <h3>Instalator Windows</h3>
+        <p>Zamknij OBS, uruchom instalator, a następnie ponownie otwórz OBS.</p>
+        <a class="button" href="/downloads/Tazzio-iPhone-Camera-Setup-1.0.0.exe" download>Pobierz instalator 1.0.0</a>
+        <small id="exeHash">SHA-256 zostanie opublikowany razem ze zweryfikowanym buildem.</small>
+      </article>
+      <article class="card">
+        <span class="tag">RĘCZNA INSTALACJA</span>
+        <h3>Plugin ZIP</h3>
+        <p>Osobna DLL <code>tazzio-iphone-camera.dll</code>, zasoby pluginu i backend TLS.</p>
+        <a class="button secondary" href="/downloads/Tazzio-iPhone-Camera-1.0.0-windows-x64.zip" download>Pobierz ZIP</a>
+        <small id="zipHash">SHA-256 zostanie opublikowany razem ze zweryfikowanym buildem.</small>
+      </article>
+    </div>
+  </section>
+
+  <section class="section">
+    <p class="eyebrow">JAK TO DZIAŁA</p>
+    <h2>Trzy kroki, bez certyfikatów</h2>
+    <div class="steps">
+      <article><b>1</b><div><h3>Otwórz Dock</h3><p>W OBS wybierz <strong>Doki → Tazzio iPhone Camera</strong> i utwórz jednorazowy kod QR.</p></div></article>
+      <article><b>2</b><div><h3>Zeskanuj iPhonem</h3><p>Kod otwiera bezpieczną stronę Safari. Nie instalujesz aplikacji ani profilu certyfikatu.</p></div></article>
+      <article><b>3</b><div><h3>Wybierz kamerę i FPS</h3><p>Wybierz 720p/1080p oraz 24, 30, 60, 120 lub 240 FPS. Safari pokazuje faktycznie uzyskaną liczbę klatek.</p></div></article>
+    </div>
+    <p class="notice">Działa w tej samej sieci oraz przez Internet/5G/LTE dzięki WebRTC i TURN. Safari musi pozostać otwarte, a ekran iPhone'a aktywny.</p>
+  </section>
+
+  <footer>Tazzio iPhone Camera 1.0.0 · osobny produkt, niezależny od Tazzio CoStream</footer>
+</main>
+</body>
+</html>
