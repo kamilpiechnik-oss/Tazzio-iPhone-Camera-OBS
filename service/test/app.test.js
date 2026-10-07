@@ -30,6 +30,6 @@ test('health identifies only iPhone Camera', async () => {
   await app.listen();
   try {
     const health = await fetch(`http://127.0.0.1:${app.server.address().port}/api/health`).then(r => r.json());
-    assert.deepEqual(health, { status: 'ok', product: 'tazzio-iphone-camera', version: '1.0.0' });
+    assert.deepEqual(health, { status: 'ok', product: 'tazzio-iphone-camera', version: '1.0.1' });
   } finally { await app.close(); }
 });

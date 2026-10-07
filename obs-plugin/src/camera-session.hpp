@@ -42,7 +42,7 @@ private:
     QUrl api_url(const QString &path) const;
 
     QNetworkAccessManager *network_{};
-    QUrl server_{QStringLiteral("https://iphone-camera.tazzio.pl")};
+    QUrl server_{QStringLiteral("https://tazzio.pl")};
     QString socket_token_;
     QString pairing_url_;
     std::vector<IceServerConfig> ice_servers_;

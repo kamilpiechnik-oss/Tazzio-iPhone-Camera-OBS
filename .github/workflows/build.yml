@@ -49,7 +49,7 @@ jobs:
           $imports = (& $dumpbin /DEPENDENTS $plugin | Out-String)
           if ($imports -match "libcrypto|libssl") { throw "OpenSSL is dynamically linked" }
       - name: Package ZIP
-        run: Compress-Archive -Path release\tazzio-iphone-camera -DestinationPath release\Tazzio-iPhone-Camera-1.0.0-windows-x64.zip -Force
+        run: Compress-Archive -Path release\tazzio-iphone-camera -DestinationPath release\Tazzio-iPhone-Camera-1.0.1-windows-x64.zip -Force
       - name: Build Windows installer
         run: |
           $iscc = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
@@ -58,8 +58,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "Inno Setup failed with exit code $LASTEXITCODE" }
       - uses: actions/upload-artifact@v4
         with:
-          name: Tazzio-iPhone-Camera-1.0.0-windows-x64-${{ github.sha }}
+          name: Tazzio-iPhone-Camera-1.0.1-windows-x64-${{ github.sha }}
           path: |
-            obs-plugin/release/Tazzio-iPhone-Camera-1.0.0-windows-x64.zip
-            obs-plugin/release/Tazzio-iPhone-Camera-Setup-1.0.0.exe
+            obs-plugin/release/Tazzio-iPhone-Camera-1.0.1-windows-x64.zip
+            obs-plugin/release/Tazzio-iPhone-Camera-Setup-1.0.1.exe
           if-no-files-found: error

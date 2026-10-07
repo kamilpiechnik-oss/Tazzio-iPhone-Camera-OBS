@@ -17,7 +17,7 @@ export function createCameraServer(config = {}) {
   const cfg = {
     port: Number(config.port ?? 8790),
     host: config.host ?? '127.0.0.1',
-    publicBaseUrl: String(config.publicBaseUrl ?? 'https://iphone-camera.tazzio.pl').replace(/\/$/, ''),
+    publicBaseUrl: String(config.publicBaseUrl ?? 'https://tazzio.pl').replace(/\/$/, ''),
     tokenSecret: config.tokenSecret ?? 'development-only-change-me',
     turnSecret: config.turnSecret ?? '',
     turnHost: config.turnHost ?? '185.238.72.154',
@@ -52,7 +52,7 @@ export function createCameraServer(config = {}) {
     Object.entries(headers).forEach(([key, value]) => res.setHeader(key, value));
     const url = new URL(req.url, 'http://localhost');
     try {
-      if (req.method === 'GET' && url.pathname === '/api/health') return json(res, 200, { status: 'ok', product: 'tazzio-iphone-camera', version: '1.0.0' });
+      if (req.method === 'GET' && url.pathname === '/api/health') return json(res, 200, { status: 'ok', product: 'tazzio-iphone-camera', version: '1.0.1' });
       if (req.method === 'POST' && url.pathname === '/api/camera/sessions') {
         if (!cfg.turnSecret) return fail(res, 503, 'turn_unconfigured', 'TURN nie jest skonfigurowany.');
         const id = randomId();
@@ -71,7 +71,7 @@ export function createCameraServer(config = {}) {
         const socketToken = signToken({ type: 'camera-socket', sub: token.sub, role: 'sender' }, cfg.tokenSecret, cfg.sessionTtl);
         return json(res, 200, { socket_token: socketToken, session_expires_in: cfg.sessionTtl, ice_servers: iceServers(token.sub) });
       }
-      const download = url.pathname.match(/^\/downloads\/(Tazzio-iPhone-Camera-(?:1\.0\.0-windows-x64\.zip|Setup-1\.0\.0\.exe))$/);
+      const download = url.pathname.match(/^\/downloads\/(Tazzio-iPhone-Camera-(?:1\.0\.1-windows-x64\.zip|Setup-1\.0\.1\.exe))$/);
       if (req.method === 'GET' && download) {
         const filePath = path.join(downloads, download[1]);
         if (!fs.existsSync(filePath)) return fail(res, 404, 'not_found', 'Plik nie jest jeszcze dostępny.');

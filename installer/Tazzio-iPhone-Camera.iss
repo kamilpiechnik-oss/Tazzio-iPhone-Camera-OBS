@@ -1,5 +1,5 @@
 #define AppName "Tazzio iPhone Camera"
-#define AppVersion "1.0.0"
+#define AppVersion "1.0.1"
 #ifndef BuildRoot
   #define BuildRoot "..\obs-plugin\release\tazzio-iphone-camera"
 #endif
@@ -15,7 +15,7 @@ DisableProgramGroupPage=yes
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 UninstallDisplayName={#AppName}
-OutputBaseFilename=Tazzio-iPhone-Camera-Setup-1.0.0
+OutputBaseFilename=Tazzio-iPhone-Camera-Setup-1.0.1
 OutputDir={#InstallerOutput}
 Compression=lzma2
 SolidCompression=yes

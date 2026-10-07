@@ -1,4 +1,5 @@
-iphone-camera.tazzio.pl {
-    encode zstd gzip
-    reverse_proxy 127.0.0.1:8791
+# Dodaj do istniejącego bloku tazzio.pl przed głównym reverse_proxy.
+@iphone_camera {
+    path /api/camera/* /camera-ws /camera/* /camera.css /camera.js
 }
+reverse_proxy @iphone_camera 127.0.0.1:8791

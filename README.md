@@ -9,7 +9,7 @@ Samodzielny plugin OBS, który odbiera obraz i opcjonalny dźwięk z Safari na i
 3. Utwórz kod QR i zeskanuj go iPhonem.
 4. W Safari wybierz aparat, rozdzielczość i FPS, a następnie uruchom kamerę.
 
-Backend publiczny działa pod `https://iphone-camera.tazzio.pl`. TURN może być współdzielony infrastrukturalnie z innymi usługami, ale sesje, tokeny, backend, instalator i branding są oddzielne.
+Plugin jest publikowany pod `https://tazzio.pl/pluginy/iphone-camera-obs/`, a jego wydzielony backend korzysta z technicznych tras `tazzio.pl`. TURN może być współdzielony infrastrukturalnie z innymi usługami, ale sesje, tokeny, backend, instalator i branding są oddzielne.
 
 ## Walidacja
 
