@@ -6,6 +6,7 @@ on:
     paths:
       - "obs-plugin/**"
       - "installer/**"
+      - "service/frontend/**"
       - ".github/workflows/build.yml"
   workflow_dispatch:
 
