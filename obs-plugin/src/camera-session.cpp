@@ -67,7 +67,7 @@ void CameraSession::create_pairing(const QString &mode)
     request.setHeader(QNetworkRequest::ContentTypeHeader, QStringLiteral("application/json"));
     const auto requested_mode = mode == QStringLiteral("internet") ? QStringLiteral("internet") : QStringLiteral("lan");
     const auto body = QJsonDocument(QJsonObject{{QStringLiteral("mode"), requested_mode},
-                                                 {QStringLiteral("client_version"), QStringLiteral("1.0.3")}})
+                                                 {QStringLiteral("client_version"), QStringLiteral("1.0.4")}})
                           .toJson(QJsonDocument::Compact);
     auto *reply = network_->post(request, body);
     connect(reply, &QNetworkReply::finished, this, [this, reply] {
@@ -77,7 +77,7 @@ void CameraSession::create_pairing(const QString &mode)
             reply->deleteLater();
             return;
         }
-        socket_token_ = object.value(QStringLiteral("socket_token")).toString();
+        socket_token_ = object.value(QStringLiteral("control_token")).toString();
         pairing_url_ = object.value(QStringLiteral("pairing_url")).toString();
         const auto receiver_url = object.value(QStringLiteral("receiver_url")).toString();
         const auto response_mode = object.value(QStringLiteral("mode")).toString();
@@ -89,13 +89,14 @@ void CameraSession::create_pairing(const QString &mode)
             for (const auto url : server.value(QStringLiteral("urls")).toArray())
                 ice_servers_.push_back({url.toString().toStdString(), username, credential});
         }
-        if (pairing_url_.isEmpty() || receiver_url.isEmpty() || response_mode.isEmpty()) {
+        if (socket_token_.isEmpty() || pairing_url_.isEmpty() || receiver_url.isEmpty() || response_mode.isEmpty()) {
             emit errorOccurred(QStringLiteral("Serwer nie zwrócił kompletnej konfiguracji kamery."));
             reply->deleteLater();
             return;
         }
         emit pairingReady(pairing_url_, receiver_url, response_mode,
                           object.value(QStringLiteral("pair_expires_in")).toInt(120));
+        open_signaling();
         emit statusChanged(QStringLiteral("Zeskanuj kod QR i uruchom kamerę w Safari."));
         reply->deleteLater();
     });
@@ -140,7 +141,7 @@ void CameraSession::handle_message(const std::string &message)
         const auto ready = object.value(QStringLiteral("ready")).toBool();
         emit peerReady(ready);
         if (ready)
-            emit statusChanged(QStringLiteral("iPhone połączony — uruchamianie WebRTC…"));
+            emit statusChanged(QStringLiteral("iPhone połączony — sterowanie kamerą aktywne."));
         return;
     }
     if (type == QStringLiteral("error")) {
@@ -148,17 +149,23 @@ void CameraSession::handle_message(const std::string &message)
         return;
     }
     const auto payload = object.value(QStringLiteral("payload")).toObject();
-    try {
-        if (type == QStringLiteral("offer")) {
-            transport_->set_remote_description(payload.value(QStringLiteral("type")).toString().toStdString(),
-                                               payload.value(QStringLiteral("sdp")).toString().toStdString());
-        } else if (type == QStringLiteral("ice-candidate")) {
-            transport_->add_remote_candidate(payload.value(QStringLiteral("candidate")).toString().toStdString(),
-                                             payload.value(QStringLiteral("mid")).toString().toStdString());
-        }
-    } catch (const std::exception &error) {
-        emit errorOccurred(QString::fromUtf8(error.what()));
-    }
+    if (type == QStringLiteral("camera-capabilities"))
+        emit cameraCapabilitiesChanged(payload);
+    else if (type == QStringLiteral("camera-state"))
+        emit cameraStateChanged(payload);
+    else if (type == QStringLiteral("camera-command-result"))
+        emit cameraCommandFinished(payload.value(QStringLiteral("id")).toString(),
+                                   payload.value(QStringLiteral("ok")).toBool(),
+                                   payload.value(QStringLiteral("message")).toString());
+}
+
+void CameraSession::send_camera_command(const QString &control, const QJsonValue &value)
+{
+    const auto id = QString::number(++command_sequence_);
+    send_signal(QStringLiteral("camera-command"),
+                {{QStringLiteral("id"), id},
+                 {QStringLiteral("control"), control},
+                 {QStringLiteral("value"), value}});
 }
 
 void CameraSession::send_signal(const QString &type, const QJsonObject &payload)

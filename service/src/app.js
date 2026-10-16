@@ -38,7 +38,7 @@ export function createCameraServer(config = {}) {
   };
   const getSession = id => {
     const session = sessions.get(id);
-    if (!session || session.expiresAt <= Date.now()) { sessions.delete(id); sockets.get(id)?.receiver?.close(1000, 'expired'); sockets.get(id)?.sender?.close(1000, 'expired'); sockets.delete(id); return null; }
+    if (!session || session.expiresAt <= Date.now()) { sessions.delete(id); sockets.get(id)?.receiver?.close(1000, 'expired'); sockets.get(id)?.sender?.close(1000, 'expired'); sockets.get(id)?.controller?.close(1000, 'expired'); sockets.delete(id); return null; }
     return session;
   };
   const headers = {
@@ -52,19 +52,21 @@ export function createCameraServer(config = {}) {
     Object.entries(headers).forEach(([key, value]) => res.setHeader(key, value));
     const url = new URL(req.url, 'http://localhost');
     try {
-      if (req.method === 'GET' && url.pathname === '/api/health') return json(res, 200, { status: 'ok', product: 'tazzio-iphone-camera', version: '1.0.3' });
+      if (req.method === 'GET' && url.pathname === '/api/health') return json(res, 200, { status: 'ok', product: 'tazzio-iphone-camera', version: '1.0.4' });
       if (req.method === 'POST' && url.pathname === '/api/camera/sessions') {
         if (!cfg.turnSecret) return fail(res, 503, 'turn_unconfigured', 'TURN nie jest skonfigurowany.');
         const body = await readBody(req);
         const mode = body.mode === 'internet' ? 'internet' : 'lan';
-        const browserReceiver = body.client_version === '1.0.3';
+        const browserReceiver = ['1.0.3', '1.0.4'].includes(body.client_version);
         const id = randomId();
         sessions.set(id, { expiresAt: Date.now() + cfg.sessionTtl * 1000, paired: false, mode, browserReceiver });
         const pairToken = signToken({ type: 'camera-pair', sub: id }, cfg.tokenSecret, cfg.pairTtl);
         const socketToken = signToken({ type: 'camera-socket', sub: id, role: 'receiver' }, cfg.tokenSecret, cfg.sessionTtl);
+        const controlToken = signToken({ type: 'camera-socket', sub: id, role: 'controller' }, cfg.tokenSecret, cfg.sessionTtl);
         const response = {
           pairing_url: `${cfg.publicBaseUrl}/camera/${encodeURIComponent(pairToken)}`,
           receiver_url: `${cfg.publicBaseUrl}/camera-receiver/${encodeURIComponent(socketToken)}`,
+          control_token: controlToken,
           mode, pair_expires_in: cfg.pairTtl, session_expires_in: cfg.sessionTtl,
         };
         if (!browserReceiver) {
@@ -123,20 +125,27 @@ export function createCameraServer(config = {}) {
     if (url.pathname !== '/camera-ws') return socket.destroy();
     let camera;
     try { camera = verifyToken(url.searchParams.get('token'), cfg.tokenSecret, 'camera-socket'); } catch { return socket.destroy(); }
-    if (!['sender', 'receiver'].includes(camera.role) || !getSession(camera.sub)) return socket.destroy();
+    if (!['sender', 'receiver', 'controller'].includes(camera.role) || !getSession(camera.sub)) return socket.destroy();
     acceptWebSocket(req, socket, head, ws => {
       const peers = sockets.get(camera.sub) ?? {};
       peers[camera.role]?.close(1000, 'replaced');
       peers[camera.role] = ws;
       sockets.set(camera.sub, peers);
-      const notify = () => { peers.receiver?.send({ type: 'peer', ready: Boolean(peers.sender) }); peers.sender?.send({ type: 'peer', ready: Boolean(peers.receiver) }); };
+      const notify = () => {
+        peers.receiver?.send({ type: 'peer', ready: Boolean(peers.sender) });
+        peers.sender?.send({ type: 'peer', ready: Boolean(peers.receiver), controllerReady: Boolean(peers.controller) });
+        peers.controller?.send({ type: 'peer', ready: Boolean(peers.sender), receiverReady: Boolean(peers.receiver) });
+      };
       ws.onMessage = message => {
-        const allowed = camera.role === 'sender' ? ['offer', 'ice-candidate'] : ['answer', 'ice-candidate'];
+        const allowed = camera.role === 'sender'
+          ? ['offer', 'ice-candidate', 'camera-capabilities', 'camera-state', 'camera-command-result']
+          : camera.role === 'receiver' ? ['answer', 'ice-candidate'] : ['camera-command'];
         if (!allowed.includes(message.type)) return ws.send({ type: 'error', code: 'invalid_camera_message' });
-        const other = camera.role === 'sender' ? peers.receiver : peers.sender;
+        const controlMessage = ['camera-capabilities', 'camera-state', 'camera-command-result'].includes(message.type);
+        const other = camera.role === 'controller' ? peers.sender : camera.role === 'sender' ? (controlMessage ? peers.controller : peers.receiver) : peers.sender;
         other?.send({ type: message.type, payload: message.payload });
       };
-      ws.onClose = () => { if (peers[camera.role] === ws) delete peers[camera.role]; if (!peers.sender && !peers.receiver) sockets.delete(camera.sub); else notify(); };
+      ws.onClose = () => { if (peers[camera.role] === ws) delete peers[camera.role]; if (!peers.sender && !peers.receiver && !peers.controller) sockets.delete(camera.sub); else notify(); };
       ws.send({ type: 'hello', role: camera.role });
       notify();
     });
@@ -145,6 +154,6 @@ export function createCameraServer(config = {}) {
   return {
     server,
     listen: () => new Promise(resolve => server.listen(cfg.port, cfg.host, resolve)),
-    close: () => new Promise(resolve => { closing = true; for (const peers of sockets.values()) { peers.sender?.close(1001, 'shutdown'); peers.receiver?.close(1001, 'shutdown'); } sockets.clear(); sessions.clear(); server.close(resolve); }),
+    close: () => new Promise(resolve => { closing = true; for (const peers of sockets.values()) { peers.sender?.close(1001, 'shutdown'); peers.receiver?.close(1001, 'shutdown'); peers.controller?.close(1001, 'shutdown'); } sockets.clear(); sessions.clear(); server.close(resolve); }),
   };
 }

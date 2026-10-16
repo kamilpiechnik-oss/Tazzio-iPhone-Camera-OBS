@@ -35,7 +35,7 @@ test('health identifies only iPhone Camera', async () => {
   await app.listen();
   try {
     const health = await fetch(`http://127.0.0.1:${app.server.address().port}/api/health`).then(r => r.json());
-    assert.deepEqual(health, { status: 'ok', product: 'tazzio-iphone-camera', version: '1.0.3' });
+    assert.deepEqual(health, { status: 'ok', product: 'tazzio-iphone-camera', version: '1.0.4' });
   } finally { await app.close(); }
 });
 
@@ -50,8 +50,10 @@ test('dock-selected mode reaches camera and browser receiver with restored quali
     assert.doesNotMatch(html, /id="connection"/);
     assert.match(html, /BALANCED · 1080p \/ 12 Mb\/s/);
     assert.match(html, /HIGH QUALITY · 1080p \/ 16 Mb\/s/);
-    assert.match(script, /iceTransportPolicy='relay'/);
-    assert.match(script, /degradationPreference='maintain-resolution'/);
+    assert.match(script, /iceTransportPolicy\s*=\s*'relay'/);
+    assert.match(script, /degradationPreference\s*=\s*'maintain-resolution'/);
+    assert.match(script, /applyConstraints\(\{ frameRate:/);
+    assert.match(script, /video: \{ width, height, frameRate:/);
     assert.match(receiver, /iceTransportPolicy='relay'/);
   } finally { await app.close(); }
 });
@@ -79,5 +81,36 @@ test('legacy 1.0.2 session response remains compatible during upgrade', async ()
     assert.ok(created.socket_token);
     assert.ok(created.ice_servers.some(server => server.urls.some(url => url.startsWith('stun:'))));
     assert.ok(created.ice_servers.some(server => server.urls.some(url => url.startsWith('turn:'))));
+  } finally { await app.close(); }
+});
+
+test('authenticated controller routes camera capabilities and commands only inside its session', async () => {
+  const app = createCameraServer({ port: 0, host: '127.0.0.1', publicBaseUrl: 'https://iphone-camera.test', tokenSecret: 'test-token-secret-123456', turnSecret: 'test-turn-secret' });
+  await app.listen();
+  const port = app.server.address().port;
+  const base = `http://127.0.0.1:${port}`;
+  const connect = token => new Promise((resolve, reject) => {
+    const ws = new WebSocket(`ws://127.0.0.1:${port}/camera-ws?token=${encodeURIComponent(token)}`);
+    ws.addEventListener('message', event => { if (JSON.parse(event.data).type === 'hello') resolve(ws); });
+    ws.addEventListener('error', reject);
+  });
+  const next = (ws, type) => new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => reject(new Error(`timeout waiting for ${type}`)), 1000);
+    ws.addEventListener('message', event => { const message = JSON.parse(event.data); if (message.type === type) { clearTimeout(timeout); resolve(message); } });
+  });
+  try {
+    const created = await fetch(`${base}/api/camera/sessions`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ client_version: '1.0.4' }) }).then(response => response.json());
+    assert.ok(created.control_token);
+    const pairToken = new URL(created.pairing_url).pathname.split('/').pop();
+    const paired = await fetch(`${base}/api/camera/pair`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ pair_token: pairToken }) }).then(response => response.json());
+    const controller = await connect(created.control_token);
+    const sender = await connect(paired.socket_token);
+    const capabilities = next(controller, 'camera-capabilities');
+    sender.send(JSON.stringify({ type: 'camera-capabilities', payload: { controls: { zoom: { min: 1, max: 3, value: 1 } } } }));
+    assert.equal((await capabilities).payload.controls.zoom.max, 3);
+    const command = next(sender, 'camera-command');
+    controller.send(JSON.stringify({ type: 'camera-command', payload: { id: '1', control: 'frameRate', value: 60 } }));
+    assert.deepEqual((await command).payload, { id: '1', control: 'frameRate', value: 60 });
+    sender.close(); controller.close();
   } finally { await app.close(); }
 });

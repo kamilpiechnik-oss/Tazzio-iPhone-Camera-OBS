@@ -4,6 +4,7 @@
 
 #include <QObject>
 #include <QJsonObject>
+#include <QJsonValue>
 #include <QUrl>
 
 #include <memory>
@@ -26,6 +27,7 @@ public:
 
     void set_server(QUrl server);
     void create_pairing(const QString &mode);
+    void send_camera_command(const QString &control, const QJsonValue &value);
     void disconnect_session();
     [[nodiscard]] PeerTransport *transport();
 
@@ -33,6 +35,9 @@ signals:
     void pairingReady(QString pairingUrl, QString receiverUrl, QString mode, int expiresIn);
     void statusChanged(QString status);
     void peerReady(bool ready);
+    void cameraCapabilitiesChanged(QJsonObject capabilities);
+    void cameraStateChanged(QJsonObject state);
+    void cameraCommandFinished(QString id, bool ok, QString message);
     void errorOccurred(QString message);
 
 private:
@@ -45,6 +50,7 @@ private:
     QUrl server_{QStringLiteral("https://tazzio.pl")};
     QString socket_token_;
     QString pairing_url_;
+    quint64 command_sequence_{};
     std::vector<IceServerConfig> ice_servers_;
     std::shared_ptr<rtc::WebSocket> websocket_;
     std::unique_ptr<PeerTransport> transport_;

@@ -6,8 +6,12 @@
 
 #include <QApplication>
 #include <QClipboard>
+#include <QCheckBox>
 #include <QComboBox>
+#include <QFormLayout>
 #include <QGuiApplication>
+#include <QGroupBox>
+#include <QHash>
 #include <QHBoxLayout>
 #include <QImage>
 #include <QLabel>
@@ -17,10 +21,13 @@
 #include <QPushButton>
 #include <QSettings>
 #include <QScrollArea>
+#include <QSignalBlocker>
+#include <QSlider>
 #include <QSizePolicy>
 #include <QUrl>
 #include <QVBoxLayout>
 #include <QWidget>
+#include <QtMath>
 
 #include "qrcodegen.hpp"
 
@@ -90,6 +97,31 @@ bool ensure_camera_source(const QString &receiver_url)
     return added;
 }
 
+void update_camera_source_size(int width, int height)
+{
+    if (width <= 0 || height <= 0)
+        return;
+    constexpr const char *source_name = "Tazzio iPhone Camera";
+    auto *source = obs_get_source_by_name(source_name);
+    if (!source)
+        return;
+    auto *settings = obs_source_get_settings(source);
+    obs_data_set_int(settings, "width", width);
+    obs_data_set_int(settings, "height", height);
+    obs_source_update(source, settings);
+    obs_data_release(settings);
+    obs_source_release(source);
+}
+
+QString camera_value_name(const QString &value)
+{
+    if (value == QStringLiteral("continuous")) return QStringLiteral("Ciągły");
+    if (value == QStringLiteral("single-shot")) return QStringLiteral("Pojedynczy");
+    if (value == QStringLiteral("manual")) return QStringLiteral("Ręczny");
+    if (value == QStringLiteral("none")) return QStringLiteral("Wyłączony");
+    return value;
+}
+
 } // namespace
 
 void register_iphone_camera_dock()
@@ -135,6 +167,68 @@ void register_iphone_camera_dock()
     auto *disconnect = new QPushButton(QStringLiteral("Rozłącz kamerę"));
     disconnect->setEnabled(false);
 
+    auto *controls_group = new QGroupBox(QStringLiteral("Sterowanie kamerą iPhone"));
+    auto *controls_form = new QFormLayout(controls_group);
+    auto *controls_note = new QLabel(QStringLiteral("Dostępne opcje pojawią się po uruchomieniu kamery na iPhonie."));
+    controls_note->setWordWrap(true);
+    controls_form->addRow(controls_note);
+
+    QHash<QString, QWidget *> control_rows;
+    QHash<QString, QComboBox *> combo_controls;
+    QHash<QString, QSlider *> range_controls;
+    QHash<QString, QLabel *> range_values;
+
+    auto *camera_select = new QComboBox;
+    controls_form->addRow(QStringLiteral("Obiektyw"), camera_select);
+    control_rows.insert(QStringLiteral("camera"), camera_select);
+    controls_form->setRowVisible(camera_select, false);
+
+    const QHash<QString, QString> enum_labels{
+        {QStringLiteral("frameRate"), QStringLiteral("FPS")},
+        {QStringLiteral("focusMode"), QStringLiteral("Tryb focusu")},
+        {QStringLiteral("exposureMode"), QStringLiteral("Tryb ekspozycji")},
+        {QStringLiteral("whiteBalanceMode"), QStringLiteral("Balans bieli")},
+    };
+    for (auto it = enum_labels.cbegin(); it != enum_labels.cend(); ++it) {
+        auto *combo = new QComboBox;
+        controls_form->addRow(it.value(), combo);
+        control_rows.insert(it.key(), combo);
+        combo_controls.insert(it.key(), combo);
+        controls_form->setRowVisible(combo, false);
+    }
+
+    const QHash<QString, QString> range_labels{
+        {QStringLiteral("zoom"), QStringLiteral("Zoom")},
+        {QStringLiteral("focusDistance"), QStringLiteral("Dystans focusu")},
+        {QStringLiteral("exposureCompensation"), QStringLiteral("Przyciemnienie / ekspozycja")},
+        {QStringLiteral("exposureTime"), QStringLiteral("Czas ekspozycji")},
+        {QStringLiteral("iso"), QStringLiteral("ISO")},
+        {QStringLiteral("brightness"), QStringLiteral("Jasność")},
+        {QStringLiteral("colorTemperature"), QStringLiteral("Temperatura barwowa")},
+    };
+    for (auto it = range_labels.cbegin(); it != range_labels.cend(); ++it) {
+        auto *row = new QWidget;
+        auto *row_layout = new QHBoxLayout(row);
+        row_layout->setContentsMargins(0, 0, 0, 0);
+        auto *slider = new QSlider(Qt::Horizontal);
+        slider->setRange(0, 1000);
+        auto *value = new QLabel(QStringLiteral("—"));
+        value->setMinimumWidth(54);
+        row_layout->addWidget(slider, 1);
+        row_layout->addWidget(value);
+        controls_form->addRow(it.value(), row);
+        control_rows.insert(it.key(), row);
+        range_controls.insert(it.key(), slider);
+        range_values.insert(it.key(), value);
+        controls_form->setRowVisible(row, false);
+    }
+
+    auto *torch = new QCheckBox(QStringLiteral("Włącz latarkę"));
+    controls_form->addRow(QStringLiteral("Latarka"), torch);
+    control_rows.insert(QStringLiteral("torch"), torch);
+    controls_form->setRowVisible(torch, false);
+    controls_group->hide();
+
     auto *url_row = new QHBoxLayout;
     url_row->addWidget(url, 1);
     url_row->addWidget(copy);
@@ -148,7 +242,103 @@ void register_iphone_camera_dock()
     layout->addLayout(url_row);
     layout->addWidget(create);
     layout->addWidget(disconnect);
+    layout->addWidget(controls_group);
     layout->addStretch();
+
+    QObject::connect(camera_select, qOverload<int>(&QComboBox::activated), dock, [=](int index) {
+        const auto device_id = camera_select->itemData(index).toString();
+        if (!device_id.isEmpty()) session->send_camera_command(QStringLiteral("camera"), device_id);
+    });
+    for (auto it = combo_controls.cbegin(); it != combo_controls.cend(); ++it) {
+        const auto name = it.key();
+        auto *combo = it.value();
+        QObject::connect(combo, qOverload<int>(&QComboBox::activated), dock, [=](int index) {
+            session->send_camera_command(name, QJsonValue::fromVariant(combo->itemData(index)));
+        });
+    }
+    for (auto it = range_controls.cbegin(); it != range_controls.cend(); ++it) {
+        const auto name = it.key();
+        auto *slider = it.value();
+        QObject::connect(slider, &QSlider::sliderReleased, dock, [=] {
+            const auto minimum = slider->property("cameraMinimum").toDouble();
+            const auto maximum = slider->property("cameraMaximum").toDouble();
+            const auto value = minimum + (maximum - minimum) * slider->value() / 1000.0;
+            session->send_camera_command(name, value);
+        });
+    }
+    QObject::connect(torch, &QCheckBox::toggled, dock, [=](bool checked) {
+        if (torch->isVisible()) session->send_camera_command(QStringLiteral("torch"), checked);
+    });
+
+    const auto update_controls = [=](const QJsonObject &capabilities) {
+        bool any = false;
+        for (auto *row : control_rows) controls_form->setRowVisible(row, false);
+
+        const auto devices = capabilities.value(QStringLiteral("devices")).toArray();
+        if (devices.size() > 1) {
+            const QSignalBlocker blocker(camera_select);
+            camera_select->clear();
+            const auto active = capabilities.value(QStringLiteral("activeDeviceId")).toString();
+            int selected = 0;
+            for (const auto &item : devices) {
+                const auto device = item.toObject();
+                camera_select->addItem(device.value(QStringLiteral("label")).toString(QStringLiteral("Kamera")),
+                                       device.value(QStringLiteral("id")).toString());
+                if (device.value(QStringLiteral("id")).toString() == active) selected = camera_select->count() - 1;
+            }
+            camera_select->setCurrentIndex(selected);
+            controls_form->setRowVisible(camera_select, true); any = true;
+        }
+
+        const auto controls = capabilities.value(QStringLiteral("controls")).toObject();
+        for (auto it = combo_controls.cbegin(); it != combo_controls.cend(); ++it) {
+            if (!controls.contains(it.key())) continue;
+            const auto description = controls.value(it.key()).toObject();
+            const auto values = description.value(QStringLiteral("values")).toArray();
+            if (values.isEmpty()) continue;
+            auto *combo = it.value(); const QSignalBlocker blocker(combo); combo->clear();
+            int selected = 0; const auto current = description.value(QStringLiteral("value"));
+            for (const auto &item : values) {
+                const auto label = it.key() == QStringLiteral("frameRate")
+                    ? QStringLiteral("%1 FPS").arg(item.toInt()) : camera_value_name(item.toString());
+                combo->addItem(label, item.toVariant());
+                if (item == current) selected = combo->count() - 1;
+            }
+            combo->setCurrentIndex(selected); controls_form->setRowVisible(combo, true); any = true;
+        }
+
+        for (auto it = range_controls.cbegin(); it != range_controls.cend(); ++it) {
+            if (!controls.contains(it.key())) continue;
+            const auto description = controls.value(it.key()).toObject();
+            const auto minimum = description.value(QStringLiteral("min")).toDouble();
+            const auto maximum = description.value(QStringLiteral("max")).toDouble();
+            const auto current = description.value(QStringLiteral("value")).toDouble();
+            auto *slider = it.value(); const QSignalBlocker blocker(slider);
+            slider->setProperty("cameraMinimum", minimum); slider->setProperty("cameraMaximum", maximum);
+            slider->setValue(maximum > minimum ? qRound((current - minimum) * 1000.0 / (maximum - minimum)) : 0);
+            range_values.value(it.key())->setText(QString::number(current, 'f', qAbs(current) < 10 ? 2 : 0));
+            controls_form->setRowVisible(control_rows.value(it.key()), true); any = true;
+        }
+
+        if (controls.contains(QStringLiteral("torch"))) {
+            const QSignalBlocker blocker(torch);
+            torch->setChecked(controls.value(QStringLiteral("torch")).toObject().value(QStringLiteral("value")).toBool());
+            controls_form->setRowVisible(torch, true); any = true;
+        }
+        controls_note->setText(any ? QStringLiteral("Widoczne są tylko funkcje udostępnione przez ten iPhone i Safari.")
+                                   : QStringLiteral("Ten iPhone nie udostępnił dodatkowych ustawień kamery w Safari."));
+        controls_group->show();
+
+        const auto video = capabilities.value(QStringLiteral("video")).toObject();
+        const auto width = video.value(QStringLiteral("width")).toInt();
+        const auto height = video.value(QStringLiteral("height")).toInt();
+        const auto fps = qRound(video.value(QStringLiteral("frameRate")).toDouble());
+        if (width > 0 && height > 0) {
+            update_camera_source_size(width, height);
+            const auto route = stats->property("cameraRoute").toString();
+            stats->setText(QStringLiteral("%1 · obraz %2×%3 · %4 FPS").arg(route).arg(width).arg(height).arg(fps));
+        }
+    };
 
     QObject::connect(create, &QPushButton::clicked, dock, [=] {
         create->setEnabled(false);
@@ -174,6 +364,8 @@ void register_iphone_camera_dock()
         qr->setText(QStringLiteral("Kod QR pojawi się tutaj"));
         status->setText(QStringLiteral("Kamera rozłączona."));
         stats->setText(QStringLiteral("Media: nieaktywne"));
+        stats->setProperty("cameraRoute", QString{});
+        controls_group->hide();
         mode->setEnabled(true);
     });
     QObject::connect(session, &tazzio::CameraSession::pairingReady, dock,
@@ -188,15 +380,25 @@ void register_iphone_camera_dock()
                          qr->setPixmap(qr_pixmap(pairing_url, 230));
                          copy->setEnabled(true);
                          create->setEnabled(true);
-                         stats->setText(selected_mode == QStringLiteral("internet")
-                                            ? QStringLiteral("Trasa: Internet przez VPS TURN · odbiornik OBS Browser Source")
-                                            : QStringLiteral("Trasa: LAN bezpośrednio · odbiornik OBS Browser Source"));
+                         const auto route = selected_mode == QStringLiteral("internet")
+                                                ? QStringLiteral("Trasa: Internet przez VPS TURN")
+                                                : QStringLiteral("Trasa: LAN bezpośrednio");
+                         stats->setProperty("cameraRoute", route);
+                         stats->setText(route + QStringLiteral(" · odbiornik OBS Browser Source"));
                      });
     QObject::connect(session, &tazzio::CameraSession::statusChanged, status, &QLabel::setText);
     QObject::connect(session, &tazzio::CameraSession::peerReady, dock, [=](bool ready) {
-        if (!ready)
+        if (!ready) {
             stats->setText(QStringLiteral("Media: oczekiwanie na iPhone'a"));
+            controls_group->hide();
+        }
     });
+    QObject::connect(session, &tazzio::CameraSession::cameraCapabilitiesChanged, dock, update_controls);
+    QObject::connect(session, &tazzio::CameraSession::cameraStateChanged, dock, update_controls);
+    QObject::connect(session, &tazzio::CameraSession::cameraCommandFinished, dock,
+                     [=](const QString &, bool ok, const QString &message) {
+                         if (!ok) status->setText(QStringLiteral("Nie udało się zmienić ustawienia kamery: ") + message);
+                     });
     QObject::connect(session, &tazzio::CameraSession::errorOccurred, dock, [=](const QString &message) {
         status->setText(QStringLiteral("Błąd: ") + message);
         create->setEnabled(true);
