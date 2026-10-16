@@ -318,7 +318,9 @@ void register_iphone_camera_dock()
                      [=](qint64 received, qint64 total) {
                          if (total <= 0)
                              total = install_update->property("updateSize").toLongLong();
-                         const auto percent = total > 0 ? qBound<qint64>(0, received * 100 / total, 100) : 0;
+                         const auto percent = total > 0
+                                                  ? qBound<qint64>(qint64{0}, received * 100 / total, qint64{100})
+                                                  : qint64{0};
                          version_status->setText(QStringLiteral("Pobieranie aktualizacji… %1%").arg(percent));
                      });
     QObject::connect(session, &tazzio::CameraSession::updateInstallerStarted, dock,
