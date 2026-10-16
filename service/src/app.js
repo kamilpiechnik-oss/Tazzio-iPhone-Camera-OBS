@@ -41,6 +41,18 @@ export function createCameraServer(config = {}) {
   const sockets = new Map();
   let closing = false;
 
+  const expireSession = id => {
+    const session = sessions.get(id);
+    if (!session) return;
+    clearTimeout(session.expiryTimer);
+    sessions.delete(id);
+    const peers = sockets.get(id);
+    peers?.receiver?.close(1000, 'expired');
+    peers?.sender?.close(1000, 'expired');
+    peers?.controller?.close(1000, 'expired');
+    sockets.delete(id);
+  };
+
   const iceServers = id => {
     const credential = turnCredentials(`camera-${id}`, cfg.turnSecret, cfg.turnTtl);
     return [
@@ -50,7 +62,7 @@ export function createCameraServer(config = {}) {
   };
   const getSession = id => {
     const session = sessions.get(id);
-    if (!session || session.expiresAt <= Date.now()) { sessions.delete(id); sockets.get(id)?.receiver?.close(1000, 'expired'); sockets.get(id)?.sender?.close(1000, 'expired'); sockets.get(id)?.controller?.close(1000, 'expired'); sockets.delete(id); return null; }
+    if (!session || session.expiresAt <= Date.now()) { expireSession(id); return null; }
     return session;
   };
   const headers = {
@@ -86,7 +98,9 @@ export function createCameraServer(config = {}) {
         const mode = body.mode === 'internet' ? 'internet' : 'lan';
         const browserReceiver = ['1.0.3', '1.0.4', '1.0.5', '1.0.6'].includes(body.client_version);
         const id = randomId();
-        sessions.set(id, { expiresAt: Date.now() + cfg.sessionTtl * 1000, paired: false, mode, browserReceiver });
+        const expiryTimer = setTimeout(() => expireSession(id), cfg.sessionTtl * 1000);
+        expiryTimer.unref?.();
+        sessions.set(id, { expiresAt: Date.now() + cfg.sessionTtl * 1000, expiryTimer, paired: false, mode, browserReceiver });
         const pairToken = signToken({ type: 'camera-pair', sub: id }, cfg.tokenSecret, cfg.pairTtl);
         const socketToken = signToken({ type: 'camera-socket', sub: id, role: 'receiver' }, cfg.tokenSecret, cfg.sessionTtl);
         const controlToken = signToken({ type: 'camera-socket', sub: id, role: 'controller' }, cfg.tokenSecret, cfg.sessionTtl);
@@ -159,6 +173,7 @@ export function createCameraServer(config = {}) {
       peers[camera.role]?.close(1000, 'replaced');
       peers[camera.role] = ws;
       sockets.set(camera.sub, peers);
+      console.info(JSON.stringify({ level: 'info', event: 'camera_socket_connected', role: camera.role }));
       const notify = () => {
         peers.receiver?.send({ type: 'peer', ready: Boolean(peers.sender) });
         peers.sender?.send({ type: 'peer', ready: Boolean(peers.receiver), controllerReady: Boolean(peers.controller) });
@@ -169,11 +184,13 @@ export function createCameraServer(config = {}) {
           ? ['offer', 'ice-candidate', 'camera-capabilities', 'camera-state', 'camera-command-result']
           : camera.role === 'receiver' ? ['answer', 'ice-candidate'] : ['camera-command'];
         if (!allowed.includes(message.type)) return ws.send({ type: 'error', code: 'invalid_camera_message' });
+        if (message.type === 'offer' || message.type === 'answer')
+          console.info(JSON.stringify({ level: 'info', event: 'camera_signal_relayed', type: message.type, from: camera.role }));
         const controlMessage = ['camera-capabilities', 'camera-state', 'camera-command-result'].includes(message.type);
         const other = camera.role === 'controller' ? peers.sender : camera.role === 'sender' ? (controlMessage ? peers.controller : peers.receiver) : peers.sender;
         other?.send({ type: message.type, payload: message.payload });
       };
-      ws.onClose = () => { if (peers[camera.role] === ws) delete peers[camera.role]; if (!peers.sender && !peers.receiver && !peers.controller) sockets.delete(camera.sub); else notify(); };
+      ws.onClose = () => { console.info(JSON.stringify({ level: 'info', event: 'camera_socket_disconnected', role: camera.role })); if (peers[camera.role] === ws) delete peers[camera.role]; if (!peers.sender && !peers.receiver && !peers.controller) sockets.delete(camera.sub); else notify(); };
       ws.send({ type: 'hello', role: camera.role });
       notify();
     });
@@ -182,6 +199,6 @@ export function createCameraServer(config = {}) {
   return {
     server,
     listen: () => new Promise(resolve => server.listen(cfg.port, cfg.host, resolve)),
-    close: () => new Promise(resolve => { closing = true; for (const peers of sockets.values()) { peers.sender?.close(1001, 'shutdown'); peers.receiver?.close(1001, 'shutdown'); peers.controller?.close(1001, 'shutdown'); } sockets.clear(); sessions.clear(); server.close(resolve); }),
+    close: () => new Promise(resolve => { closing = true; for (const session of sessions.values()) clearTimeout(session.expiryTimer); for (const peers of sockets.values()) { peers.sender?.close(1001, 'shutdown'); peers.receiver?.close(1001, 'shutdown'); peers.controller?.close(1001, 'shutdown'); } sockets.clear(); sessions.clear(); server.close(resolve); }),
   };
 }

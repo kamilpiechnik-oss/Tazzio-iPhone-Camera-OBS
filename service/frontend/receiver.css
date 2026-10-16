@@ -3,7 +3,7 @@ body {
   width: 100%;
   height: 100%;
   margin: 0;
-  background: #000;
+  background: transparent;
   overflow: hidden;
 }
 
@@ -19,6 +19,13 @@ video {
   margin: 0;
   object-fit: contain;
   overflow: hidden;
+  opacity: 0;
+  visibility: hidden;
+}
+
+body.stream-active video {
+  opacity: 1;
+  visibility: visible;
 }
 
 ::-webkit-scrollbar {
@@ -28,11 +35,5 @@ video {
 }
 
 .state {
-  position: fixed;
-  inset: 0;
-  display: grid;
-  place-items: center;
-  color: #9aa4b3;
-  font: 600 18px system-ui;
-  background: #05070b;
+  display: none !important;
 }

@@ -30,6 +30,19 @@ test('standalone camera service pairs once and routes signaling', async () => {
   } finally { await app.close(); }
 });
 
+test('expired session proactively closes its receiver socket', async () => {
+  const app = createCameraServer({ port: 0, host: '127.0.0.1', publicBaseUrl: 'https://iphone-camera.test', tokenSecret: 'test-token-secret-123456', turnSecret: 'test-turn-secret', sessionTtl: 0.2 });
+  await app.listen();
+  const base = `http://127.0.0.1:${app.server.address().port}`;
+  try {
+    const created = await fetch(`${base}/api/camera/sessions`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ client_version: '1.0.6' }) }).then(response => response.json());
+    const receiverToken = new URL(created.receiver_url).pathname.split('/').pop();
+    const receiver = new WebSocket(`ws://127.0.0.1:${app.server.address().port}/camera-ws?token=${encodeURIComponent(receiverToken)}`);
+    await new Promise((resolve, reject) => { receiver.addEventListener('open', resolve, { once: true }); receiver.addEventListener('error', reject, { once: true }); });
+    await new Promise((resolve, reject) => { const timeout = setTimeout(() => reject(new Error('session socket did not expire')), 1500); receiver.addEventListener('close', () => { clearTimeout(timeout); resolve(); }, { once: true }); });
+  } finally { await app.close(); }
+});
+
 test('health identifies only iPhone Camera', async () => {
   const app = createCameraServer({ port: 0, host: '127.0.0.1' });
   await app.listen();
@@ -92,8 +105,18 @@ test('dock-selected mode reaches camera and browser receiver with restored quali
     assert.match(script, /else if \(control === 'quality'\) await setQualityProfile\(value\)/);
     assert.match(script, /await applyQuality\(true\)/);
     assert.match(receiver, /iceTransportPolicy='relay'/);
-    assert.match(receiverHtml, /href="\/camera\/receiver\.css"/);
+    assert.match(receiver, /message\.type==='peer'&&!message\.ready\)closePeer/);
+    assert.match(receiver, /track\.addEventListener\('mute'/);
+    assert.match(receiver, /connectionState==='connected'/);
+    assert.match(receiver, /setStreamVisible\(false\)/);
+    assert.match(receiver, /closePeer\(false\)/);
+    assert.match(receiverHtml, /href="\/camera\/receiver\.css\?v=1\.0\.6-2"/);
+    assert.match(receiverHtml, /src="\/receiver\.js\?v=1\.0\.6-2"/);
     assert.match(receiverCss, /overflow:\s*hidden/);
+    assert.match(receiverCss, /background:\s*transparent/);
+    assert.match(receiverCss, /body\.stream-active video/);
+    assert.match(receiverCss, /visibility:\s*hidden/);
+    assert.match(receiverCss, /\.state\s*\{[\s\S]*display:\s*none !important/);
     assert.match(receiverCss, /display:\s*block/);
     assert.match(receiverCss, /width:\s*100vw/);
     assert.match(receiverCss, /::-webkit-scrollbar/);
