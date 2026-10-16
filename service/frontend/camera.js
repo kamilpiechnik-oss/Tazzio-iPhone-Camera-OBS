@@ -5,7 +5,7 @@ const profiles = {
   highQuality: { width: 1920, height: 1080, fps: 30, bitrateAt30: 20000000 },
   weakNetwork: { width: 1280, height: 720, fps: 30, bitrateAt30: 5000000 },
 };
-const state = { pairToken: '', socketToken: '', iceServers: [], mode: 'lan', ws: null, pc: null, stream: null, statsTimer: null, wakeLock: null, ready: false, previousStats: { at: 0, bytes: 0 }, commandBusy: false, lastVideoState: '', focusMode: '' };
+const state = { pairToken: '', socketToken: '', iceServers: [], mode: 'lan', ws: null, pc: null, stream: null, statsTimer: null, wakeLock: null, ready: false, previousStats: { at: 0, bytes: 0 }, commandBusy: false, lastVideoState: '', focusMode: '', resumeOnVisible: false, resuming: false };
 
 function setStatus(message, connected = false) { $('#status').textContent = message; $('#status').classList.toggle('connected', connected); }
 function apiError(data, fallback) { return data?.message || data?.error || fallback; }
@@ -162,4 +162,14 @@ async function keepAwake() { try { if ('wakeLock' in navigator) state.wakeLock =
 async function updateStats() { const track = state.stream?.getVideoTracks()[0]; if (!track) return; const settings = track.getSettings(); let outbound, pair, localCandidate, remoteCandidate; const reports = state.pc ? await state.pc.getStats() : []; reports.forEach(report => { if (report.type === 'outbound-rtp' && report.kind === 'video') outbound = report; if (report.type === 'candidate-pair' && report.state === 'succeeded' && (report.nominated || !pair)) pair = report; }); if (pair) reports.forEach(report => { if (report.id === pair.localCandidateId) localCandidate = report; if (report.id === pair.remoteCandidateId) remoteCandidate = report; }); const now = performance.now(); let bitrate = 0; if (outbound && state.previousStats.at) bitrate = (outbound.bytesSent - state.previousStats.bytes) * 8 / (now - state.previousStats.at) / 1000; if (outbound) state.previousStats = { at: now, bytes: outbound.bytesSent }; const relay = localCandidate?.candidateType === 'relay' || remoteCandidate?.candidateType === 'relay'; const route = relay ? 'VPS TURN' : selectedMode() === 'lan' ? 'LAN DIRECT' : 'DIRECT P2P'; const rtt = Math.round((pair?.currentRoundTripTime || 0) * 1000); const actualFps = Math.round(outbound?.framesPerSecond || settings.frameRate || 0); const width = Number($('#preview').videoWidth || settings.width || 0); const height = Number($('#preview').videoHeight || settings.height || 0); $('#stats').textContent = `${width || '?'}×${height || '?'} · ${actualFps} FPS · ${bitrate ? bitrate.toFixed(1) : '—'} Mb/s · ${route}${rtt ? ` · ${rtt} ms` : ''}`; const signature = `${width}x${height}@${actualFps}:${bitrate.toFixed(1)}`; if (signature !== state.lastVideoState) { state.lastVideoState = signature; reportCameraCapabilities('camera-state', { width, height, frameRate: actualFps, actualBitrateMbps: bitrate }).catch(() => {}); } }
 function startStats() { clearInterval(state.statsTimer); state.previousStats = { at: 0, bytes: 0 }; state.statsTimer = setInterval(() => updateStats().catch(() => {}), 1000); updateStats().catch(() => {}); }
 function stop() { clearInterval(state.statsTimer); state.statsTimer = null; state.lastVideoState = ''; state.ws?.close(); state.ws = null; state.pc?.close(); state.pc = null; state.stream?.getTracks().forEach(track => track.stop()); state.stream = null; $('#preview').srcObject = null; $('#preview').onresize = null; $('#placeholder').hidden = false; state.wakeLock?.release?.(); state.wakeLock = null; $('#stop').hidden = true; $('#start').hidden = false; $('#start').disabled = !state.ready; lockControls(false); updateCapabilities(); setStatus(state.ready ? 'Transmisja zatrzymana. Możesz zmienić ustawienia i uruchomić ją ponownie.' : 'Transmisja zatrzymana.'); }
-$('#start').addEventListener('click', start); $('#stop').addEventListener('click', stop); window.addEventListener('pagehide', stop); pair();
+async function resumeAfterBackground() {
+  if (!state.resumeOnVisible || state.resuming || !state.ready) return;
+  state.resumeOnVisible = false; state.resuming = true;
+  try { stop(); setStatus('Przywracanie kamery i sterowania po powrocie do Safari…'); await start(); }
+  finally { state.resuming = false; }
+}
+$('#start').addEventListener('click', start); $('#stop').addEventListener('click', () => { state.resumeOnVisible = false; stop(); });
+document.addEventListener('visibilitychange', () => { if (document.hidden) state.resumeOnVisible = Boolean(state.stream); else resumeAfterBackground().catch(error => setStatus(error.message)); });
+window.addEventListener('pagehide', event => { if (event.persisted) state.resumeOnVisible = Boolean(state.stream); else stop(); });
+window.addEventListener('pageshow', event => { if (event.persisted) resumeAfterBackground().catch(error => setStatus(error.message)); });
+pair();

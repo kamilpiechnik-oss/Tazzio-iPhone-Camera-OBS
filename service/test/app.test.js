@@ -83,6 +83,9 @@ test('dock-selected mode reaches camera and browser receiver with restored quali
     assert.match(script, /requested >= 50\) track = await replaceVideoTrack/);
     assert.match(script, /focusMode: preferred/);
     assert.match(script, /actualBitrateMbps: bitrate/);
+    assert.match(script, /visibilitychange/);
+    assert.match(script, /resumeAfterBackground/);
+    assert.doesNotMatch(script, /addEventListener\('pagehide', stop\)/);
     assert.match(script, /video: \{ width, height, frameRate:/);
     assert.match(script, /controls\.quality/);
     assert.match(script, /bitrateAt30 \* Math\.max\(1, requestedFps\(\) \/ 30\)/);
