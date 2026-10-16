@@ -118,6 +118,10 @@ void update_camera_source_size(int width, int height)
 
 QString camera_value_name(const QString &value)
 {
+    if (value == QStringLiteral("weakNetwork")) return QStringLiteral("Oszczędna · 720p");
+    if (value == QStringLiteral("lowLatency")) return QStringLiteral("Niskie opóźnienie · 1080p");
+    if (value == QStringLiteral("balanced")) return QStringLiteral("Wysoka · 1080p");
+    if (value == QStringLiteral("highQuality")) return QStringLiteral("Maksymalna · 1080p");
     if (value == QStringLiteral("continuous")) return QStringLiteral("Ciągły");
     if (value == QStringLiteral("single-shot")) return QStringLiteral("Pojedynczy");
     if (value == QStringLiteral("manual")) return QStringLiteral("Ręczny");
@@ -193,6 +197,7 @@ void register_iphone_camera_dock()
     controls_form->setRowVisible(camera_select, false);
 
     const QHash<QString, QString> enum_labels{
+        {QStringLiteral("quality"), QStringLiteral("Jakość transmisji")},
         {QStringLiteral("frameRate"), QStringLiteral("FPS")},
         {QStringLiteral("focusMode"), QStringLiteral("Tryb focusu")},
         {QStringLiteral("exposureMode"), QStringLiteral("Tryb ekspozycji")},
@@ -376,10 +381,13 @@ void register_iphone_camera_dock()
         const auto width = video.value(QStringLiteral("width")).toInt();
         const auto height = video.value(QStringLiteral("height")).toInt();
         const auto fps = qRound(video.value(QStringLiteral("frameRate")).toDouble());
+        const auto target_bitrate = video.value(QStringLiteral("targetBitrateMbps")).toDouble();
+        const auto quality = camera_value_name(video.value(QStringLiteral("quality")).toString());
         if (width > 0 && height > 0) {
             update_camera_source_size(width, height);
             const auto route = stats->property("cameraRoute").toString();
-            stats->setText(QStringLiteral("%1 · obraz %2×%3 · %4 FPS").arg(route).arg(width).arg(height).arg(fps));
+            stats->setText(QStringLiteral("%1 · obraz %2×%3 · %4 FPS · %5 · limit %6 Mb/s")
+                               .arg(route).arg(width).arg(height).arg(fps).arg(quality).arg(target_bitrate, 0, 'f', 0));
         }
     };
 

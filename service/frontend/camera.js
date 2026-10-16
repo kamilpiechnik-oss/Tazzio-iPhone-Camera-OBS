@@ -1,9 +1,9 @@
 const $ = selector => document.querySelector(selector);
 const profiles = {
-  lowLatency: { width: 1920, height: 1080, fps: 60, bitrate: 8000000 },
-  balanced: { width: 1920, height: 1080, fps: 60, bitrate: 12000000 },
-  highQuality: { width: 1920, height: 1080, fps: 30, bitrate: 16000000 },
-  weakNetwork: { width: 1280, height: 720, fps: 30, bitrate: 4000000 },
+  lowLatency: { width: 1920, height: 1080, fps: 60, bitrateAt30: 8000000 },
+  balanced: { width: 1920, height: 1080, fps: 60, bitrateAt30: 14000000 },
+  highQuality: { width: 1920, height: 1080, fps: 30, bitrateAt30: 20000000 },
+  weakNetwork: { width: 1280, height: 720, fps: 30, bitrateAt30: 5000000 },
 };
 const state = { pairToken: '', socketToken: '', iceServers: [], mode: 'lan', ws: null, pc: null, stream: null, statsTimer: null, wakeLock: null, ready: false, previousStats: { at: 0, bytes: 0 }, commandBusy: false, lastVideoState: '' };
 
@@ -11,7 +11,8 @@ function setStatus(message, connected = false) { $('#status').textContent = mess
 function apiError(data, fallback) { return data?.message || data?.error || fallback; }
 function socketUrl(token) { const url = new URL('/camera-ws', location.origin); url.protocol = location.protocol === 'https:' ? 'wss:' : 'ws:'; url.searchParams.set('token', token); return url; }
 function activeProfile() { return profiles[$('#quality').value] || profiles.balanced; }
-function requestedFps() { return Number($('#fps').value) || activeProfile().fps; }
+function requestedFps() { return Number($('#fps').value) || Number(state.stream?.getVideoTracks()[0]?.getSettings?.().frameRate) || activeProfile().fps; }
+function targetBitrate() { const scaled = activeProfile().bitrateAt30 * Math.max(1, requestedFps() / 30); return Math.round(Math.min(scaled, selectedMode() === 'internet' ? 24000000 : 60000000)); }
 function selectedMode() { return state.mode; }
 function selectedIceServers() { return state.iceServers; }
 function sendMessage(type, payload) { if (state.ws?.readyState === WebSocket.OPEN) state.ws.send(JSON.stringify({ type, payload })); }
@@ -33,7 +34,7 @@ function saveChoices() { localStorage.setItem('tazzioCameraQuality', $('#quality
 function updateModeNote() { const lan = selectedMode() === 'lan'; $('#mode-note').textContent = lan ? 'LAN: obraz idzie bezpośrednio z iPhone’a do komputera. VPS służy tylko do sparowania urządzeń.' : 'Internet: obraz jest wymuszony przez bezpieczny przekaźnik TURN na VPS — użyj poza domowym Wi‑Fi.'; $('#mode-pill').textContent = lan ? 'LAN DIRECT' : 'VPS RELAY'; $('#mode-pill').classList.toggle('relay', !lan); }
 function selectedVideoConstraints() { const profile = activeProfile(); const fps = requestedFps(); const lens = $('#lens').value; const video = { width: { ideal: profile.width }, height: { ideal: profile.height }, frameRate: { ideal: fps, max: fps } }; if (lens.startsWith('device:')) video.deviceId = { exact: lens.slice(7) }; else video.facingMode = { ideal: lens }; return video; }
 async function preferH264(transceiver) { if (!transceiver?.setCodecPreferences || !RTCRtpSender.getCapabilities) return; const codecs = RTCRtpSender.getCapabilities('video')?.codecs || []; const h264 = codecs.filter(codec => codec.mimeType.toLowerCase() === 'video/h264'); const rest = codecs.filter(codec => codec.mimeType.toLowerCase() !== 'video/h264'); if (h264.length) transceiver.setCodecPreferences([...h264, ...rest]); }
-async function applyQuality() { const sender = state.pc?.getSenders().find(item => item.track?.kind === 'video'); if (!sender) return; const parameters = sender.getParameters(); if (!parameters.encodings?.length) parameters.encodings = [{}]; parameters.encodings[0].maxBitrate = activeProfile().bitrate; parameters.encodings[0].maxFramerate = requestedFps(); parameters.encodings[0].scaleResolutionDownBy = 1; parameters.degradationPreference = 'maintain-resolution'; try { await sender.setParameters(parameters); } catch {} }
+async function applyQuality(strict = false) { const sender = state.pc?.getSenders().find(item => item.track?.kind === 'video'); if (!sender) return; const parameters = sender.getParameters(); if (!parameters.encodings?.length) parameters.encodings = [{}]; parameters.encodings[0].maxBitrate = targetBitrate(); parameters.encodings[0].maxFramerate = requestedFps(); parameters.encodings[0].scaleResolutionDownBy = 1; parameters.degradationPreference = 'maintain-resolution'; try { await sender.setParameters(parameters); } catch (error) { if (strict) throw new Error('Safari nie pozwoliło zmienić jakości nadajnika WebRTC.'); } }
 async function populateCameras() { const devices = (await navigator.mediaDevices.enumerateDevices()).filter(device => device.kind === 'videoinput'); const existing = new Set([...$('#lens').options].map(option => option.value)); devices.forEach((device, index) => { const value = `device:${device.deviceId}`; if (existing.has(value)) return; const option = document.createElement('option'); option.value = value; option.textContent = device.label || `Kamera ${index + 1}`; $('#lens').append(option); }); return devices; }
 function updateCapabilities() { const track = state.stream?.getVideoTracks()[0]; const caps = track?.getCapabilities?.() || {}; const maxFps = Number(caps.frameRate?.max || 0); for (const option of $('#fps').options) { if (option.value === '0') continue; option.disabled = maxFps > 0 && Number(option.value) > maxFps; } }
 
@@ -60,8 +61,9 @@ async function cameraCapabilities(videoOverride = {}) {
     const values = [...new Set([24, 25, 30, 50, 60, 90, 120, 144, 240, current].filter(value => value >= min && value <= max))].sort((a, b) => a - b);
     if (values.length) controls.frameRate = { type: 'enum', values, value: current || values[0], max };
   }
+  controls.quality = { type: 'enum', values: Object.keys(profiles), value: $('#quality').value };
   const preview = $('#preview'); const width = Number(preview.videoWidth || settings.width || 0); const height = Number(preview.videoHeight || settings.height || 0);
-  return { devices: devices.map((device, index) => ({ id: device.deviceId, label: device.label || `Kamera ${index + 1}` })), activeDeviceId: settings.deviceId || '', facingMode: settings.facingMode || '', video: { width, height, frameRate: Number(settings.frameRate || 0), ...videoOverride }, controls };
+  return { devices: devices.map((device, index) => ({ id: device.deviceId, label: device.label || `Kamera ${index + 1}` })), activeDeviceId: settings.deviceId || '', facingMode: settings.facingMode || '', video: { width, height, frameRate: Number(settings.frameRate || 0), quality: $('#quality').value, targetBitrateMbps: targetBitrate() / 1000000, ...videoOverride }, controls };
 }
 async function reportCameraCapabilities(type = 'camera-capabilities', videoOverride = {}) { if (state.ws?.readyState !== WebSocket.OPEN || !state.stream) return; sendMessage(type, await cameraCapabilities(videoOverride)); }
 
@@ -77,6 +79,19 @@ async function switchCamera(deviceId) {
   if (!deviceId) throw new Error('Nie wybrano kamery.');
   const video = selectedVideoConstraints(); delete video.facingMode; video.deviceId = { exact: deviceId };
   await replaceVideoTrack(video, `device:${deviceId}`);
+}
+async function setQualityProfile(value) {
+  const name = String(value || ''); if (!Object.prototype.hasOwnProperty.call(profiles, name)) throw new Error('Nieprawidłowy profil jakości.');
+  const track = state.stream?.getVideoTracks()[0]; if (!track) throw new Error('Kamera nie jest uruchomiona.');
+  const currentFps = Math.round(Number(track.getSettings?.().frameRate || requestedFps()));
+  $('#quality').value = name;
+  const fpsOption = [...$('#fps').options].find(option => Number(option.value) === currentFps); if (fpsOption) $('#fps').value = fpsOption.value;
+  saveChoices();
+  const video = selectedVideoConstraints(); const deviceId = track.getSettings?.().deviceId;
+  if (deviceId) { delete video.facingMode; video.deviceId = { exact: deviceId }; }
+  try { await track.applyConstraints(video); }
+  catch { await replaceVideoTrack(video, deviceId ? `device:${deviceId}` : ''); }
+  await applyQuality(true);
 }
 async function setFrameRate(value) {
   const requested = Number(value); if (!Number.isFinite(requested) || requested <= 0) throw new Error('Nieprawidłowy FPS.');
@@ -95,8 +110,7 @@ async function setFrameRate(value) {
     if (deviceId) { delete video.facingMode; video.deviceId = { exact: deviceId }; }
     track = await replaceVideoTrack(video, deviceId ? `device:${deviceId}` : ''); actual = Number(track.getSettings?.().frameRate || 0);
   }
-  const sender = state.pc?.getSenders().find(item => item.track?.kind === 'video');
-  if (sender) { const parameters = sender.getParameters(); if (!parameters.encodings?.length) parameters.encodings = [{}]; parameters.encodings[0].maxFramerate = requested; await sender.setParameters(parameters); }
+  await applyQuality(true);
   if (actual && actual < requested - 1) throw new Error(`Safari ustawiło ${actual.toFixed(0)} FPS zamiast ${requested} FPS.`);
 }
 async function applyCameraCommand(command) {
@@ -106,6 +120,7 @@ async function applyCameraCommand(command) {
     const control = String(command?.control || ''); const value = command?.value;
     if (control === 'camera') await switchCamera(String(value || ''));
     else if (control === 'frameRate') await setFrameRate(value);
+    else if (control === 'quality') await setQualityProfile(value);
     else {
       const track = state.stream?.getVideoTracks()[0]; if (!track) throw new Error('Kamera nie jest uruchomiona.');
       const caps = track.getCapabilities?.() || {}; const allowed = ['zoom', 'torch', 'focusMode', 'focusDistance', 'exposureMode', 'exposureCompensation', 'exposureTime', 'iso', 'brightness', 'whiteBalanceMode', 'colorTemperature'];

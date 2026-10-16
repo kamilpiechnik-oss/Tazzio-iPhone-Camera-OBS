@@ -8,7 +8,7 @@ import { randomId, signToken, turnCredentials, verifyToken } from './security.js
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const frontend = path.join(root, 'frontend');
 const downloads = path.join(frontend, 'downloads');
-const currentVersion = '1.0.4';
+const currentVersion = '1.0.5';
 const updatePage = 'https://tazzio.pl/pluginy/iphone-camera-obs/';
 const json = (res, status, value) => { const body = JSON.stringify(value); res.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'content-length': Buffer.byteLength(body), 'cache-control': 'no-store' }); res.end(body); };
 const fail = (res, status, code, message) => json(res, status, { error: code, message });
@@ -75,7 +75,7 @@ export function createCameraServer(config = {}) {
         if (!cfg.turnSecret) return fail(res, 503, 'turn_unconfigured', 'TURN nie jest skonfigurowany.');
         const body = await readBody(req);
         const mode = body.mode === 'internet' ? 'internet' : 'lan';
-        const browserReceiver = ['1.0.3', '1.0.4'].includes(body.client_version);
+        const browserReceiver = ['1.0.3', '1.0.4', '1.0.5'].includes(body.client_version);
         const id = randomId();
         sessions.set(id, { expiresAt: Date.now() + cfg.sessionTtl * 1000, paired: false, mode, browserReceiver });
         const pairToken = signToken({ type: 'camera-pair', sub: id }, cfg.tokenSecret, cfg.pairTtl);

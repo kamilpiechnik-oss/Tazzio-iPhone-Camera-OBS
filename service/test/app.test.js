@@ -35,7 +35,7 @@ test('health identifies only iPhone Camera', async () => {
   await app.listen();
   try {
     const health = await fetch(`http://127.0.0.1:${app.server.address().port}/api/health`).then(r => r.json());
-    assert.deepEqual(health, { status: 'ok', product: 'tazzio-iphone-camera', version: '1.0.4' });
+    assert.deepEqual(health, { status: 'ok', product: 'tazzio-iphone-camera', version: '1.0.5' });
   } finally { await app.close(); }
 });
 
@@ -45,8 +45,8 @@ test('update endpoint compares installed plugin version and returns the stable d
   const base = `http://127.0.0.1:${app.server.address().port}`;
   try {
     const oldVersion = await fetch(`${base}/api/camera/update?current=1.0.3`).then(response => response.json());
-    assert.deepEqual(oldVersion, { latest_version: '1.0.4', update_available: true, download_url: 'https://tazzio.pl/pluginy/iphone-camera-obs/' });
-    const currentVersion = await fetch(`${base}/api/camera/update?current=1.0.4`).then(response => response.json());
+    assert.deepEqual(oldVersion, { latest_version: '1.0.5', update_available: true, download_url: 'https://tazzio.pl/pluginy/iphone-camera-obs/' });
+    const currentVersion = await fetch(`${base}/api/camera/update?current=1.0.5`).then(response => response.json());
     assert.equal(currentVersion.update_available, false);
     const futureVersion = await fetch(`${base}/api/camera/update?current=2.0.0`).then(response => response.json());
     assert.equal(futureVersion.update_available, false);
@@ -62,12 +62,16 @@ test('dock-selected mode reaches camera and browser receiver with restored quali
     const script = await fetch(`${base}/camera.js`).then(response => response.text());
     const receiver = await fetch(`${base}/receiver.js`).then(response => response.text());
     assert.doesNotMatch(html, /id="connection"/);
-    assert.match(html, /BALANCED · 1080p \/ 12 Mb\/s/);
-    assert.match(html, /HIGH QUALITY · 1080p \/ 16 Mb\/s/);
+    assert.match(html, /WYSOKA · 1080p \/ bitrate zależny od FPS/);
+    assert.match(html, /MAKSYMALNA · 1080p \/ bitrate zależny od FPS/);
     assert.match(script, /iceTransportPolicy\s*=\s*'relay'/);
     assert.match(script, /degradationPreference\s*=\s*'maintain-resolution'/);
     assert.match(script, /applyConstraints\(\{ frameRate:/);
     assert.match(script, /video: \{ width, height, frameRate:/);
+    assert.match(script, /controls\.quality/);
+    assert.match(script, /bitrateAt30 \* Math\.max\(1, requestedFps\(\) \/ 30\)/);
+    assert.match(script, /else if \(control === 'quality'\) await setQualityProfile\(value\)/);
+    assert.match(script, /await applyQuality\(true\)/);
     assert.match(receiver, /iceTransportPolicy='relay'/);
   } finally { await app.close(); }
 });
@@ -113,7 +117,7 @@ test('authenticated controller routes camera capabilities and commands only insi
     ws.addEventListener('message', event => { const message = JSON.parse(event.data); if (message.type === type) { clearTimeout(timeout); resolve(message); } });
   });
   try {
-    const created = await fetch(`${base}/api/camera/sessions`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ client_version: '1.0.4' }) }).then(response => response.json());
+    const created = await fetch(`${base}/api/camera/sessions`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ client_version: '1.0.5' }) }).then(response => response.json());
     assert.ok(created.control_token);
     const pairToken = new URL(created.pairing_url).pathname.split('/').pop();
     const paired = await fetch(`${base}/api/camera/pair`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ pair_token: pairToken }) }).then(response => response.json());
