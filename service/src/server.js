@@ -13,8 +13,11 @@ const app = createCameraServer({
   tokenSecret: required('TOKEN_SECRET'),
   turnSecret: required('TURN_SECRET'),
   turnHost: process.env.TURN_HOST ?? '185.238.72.154',
+  updateDownloadUrl: required('UPDATE_DOWNLOAD_URL'),
+  updateSha256: required('UPDATE_SHA256'),
+  updateSize: Number(required('UPDATE_SIZE')),
 });
 
 await app.listen();
-console.log(JSON.stringify({ level: 'info', event: 'server_started', product: 'tazzio-iphone-camera', version: '1.0.5', port: Number(process.env.PORT ?? 8790) }));
+console.log(JSON.stringify({ level: 'info', event: 'server_started', product: 'tazzio-iphone-camera', version: '1.0.6', port: Number(process.env.PORT ?? 8790) }));
 for (const signal of ['SIGINT', 'SIGTERM']) process.on(signal, async () => { await app.close(); process.exit(0); });

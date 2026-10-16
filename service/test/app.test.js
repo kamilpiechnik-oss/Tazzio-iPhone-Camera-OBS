@@ -35,21 +35,32 @@ test('health identifies only iPhone Camera', async () => {
   await app.listen();
   try {
     const health = await fetch(`http://127.0.0.1:${app.server.address().port}/api/health`).then(r => r.json());
-    assert.deepEqual(health, { status: 'ok', product: 'tazzio-iphone-camera', version: '1.0.5' });
+    assert.deepEqual(health, { status: 'ok', product: 'tazzio-iphone-camera', version: '1.0.6' });
   } finally { await app.close(); }
 });
 
-test('update endpoint compares installed plugin version and returns the stable download page', async () => {
-  const app = createCameraServer({ port: 0, host: '127.0.0.1' });
+test('update endpoint returns a verified direct installer manifest', async () => {
+  const update = { updateDownloadUrl: 'https://tazzio.pl/pobierz/8/', updateSha256: 'a'.repeat(64), updateSize: 3900000 };
+  const app = createCameraServer({ port: 0, host: '127.0.0.1', ...update });
   await app.listen();
   const base = `http://127.0.0.1:${app.server.address().port}`;
   try {
     const oldVersion = await fetch(`${base}/api/camera/update?current=1.0.3`).then(response => response.json());
-    assert.deepEqual(oldVersion, { latest_version: '1.0.5', update_available: true, download_url: 'https://tazzio.pl/pluginy/iphone-camera-obs/' });
-    const currentVersion = await fetch(`${base}/api/camera/update?current=1.0.5`).then(response => response.json());
+    assert.deepEqual(oldVersion, { latest_version: '1.0.6', update_available: true, download_url: update.updateDownloadUrl, sha256: update.updateSha256, size: update.updateSize });
+    const currentVersion = await fetch(`${base}/api/camera/update?current=1.0.6`).then(response => response.json());
     assert.equal(currentVersion.update_available, false);
     const futureVersion = await fetch(`${base}/api/camera/update?current=2.0.0`).then(response => response.json());
     assert.equal(futureVersion.update_available, false);
+  } finally { await app.close(); }
+});
+
+test('update endpoint fails closed when installer verification metadata is missing', async () => {
+  const app = createCameraServer({ port: 0, host: '127.0.0.1' });
+  await app.listen();
+  try {
+    const response = await fetch(`http://127.0.0.1:${app.server.address().port}/api/camera/update?current=1.0.5`);
+    assert.equal(response.status, 503);
+    assert.equal((await response.json()).error, 'update_unavailable');
   } finally { await app.close(); }
 });
 
@@ -121,7 +132,7 @@ test('authenticated controller routes camera capabilities and commands only insi
     ws.addEventListener('message', event => { const message = JSON.parse(event.data); if (message.type === type) { clearTimeout(timeout); resolve(message); } });
   });
   try {
-    const created = await fetch(`${base}/api/camera/sessions`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ client_version: '1.0.5' }) }).then(response => response.json());
+    const created = await fetch(`${base}/api/camera/sessions`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ client_version: '1.0.6' }) }).then(response => response.json());
     assert.ok(created.control_token);
     const pairToken = new URL(created.pairing_url).pathname.split('/').pop();
     const paired = await fetch(`${base}/api/camera/pair`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ pair_token: pairToken }) }).then(response => response.json());

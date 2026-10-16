@@ -9,7 +9,6 @@
 #include <QClipboard>
 #include <QCheckBox>
 #include <QComboBox>
-#include <QDesktopServices>
 #include <QFormLayout>
 #include <QGuiApplication>
 #include <QGroupBox>
@@ -20,6 +19,7 @@
 #include <QLabel>
 #include <QLayout>
 #include <QLineEdit>
+#include <QMessageBox>
 #include <QPixmap>
 #include <QPushButton>
 #include <QSettings>
@@ -153,7 +153,7 @@ void register_iphone_camera_dock()
     auto *version_status = new QLabel(QStringLiteral("Wersja %1 · sprawdzanie aktualizacji…").arg(installed_version));
     version_status->setWordWrap(true);
     auto *check_updates = new QPushButton(QStringLiteral("Sprawdź aktualizacje"));
-    auto *install_update = new QPushButton(QStringLiteral("Pobierz aktualizację"));
+    auto *install_update = new QPushButton(QStringLiteral("Zaktualizuj"));
     install_update->hide();
     auto *description = new QLabel(QStringLiteral(
         "Wybierz trasę w Docku. LAN przesyła obraz bezpośrednio do źródła Przeglądarka w OBS; Internet używa przekaźnika VPS."));
@@ -274,15 +274,35 @@ void register_iphone_camera_dock()
     });
     QObject::connect(install_update, &QPushButton::clicked, dock, [=] {
         const auto update_url = install_update->property("updateUrl").toUrl();
-        if (update_url.isValid()) QDesktopServices::openUrl(update_url);
+        const auto latest = install_update->property("updateVersion").toString();
+        const auto sha256 = install_update->property("updateSha256").toString();
+        const auto size = install_update->property("updateSize").toLongLong();
+        if (!update_url.isValid() || latest.isEmpty() || sha256.isEmpty() || size <= 0)
+            return;
+        const auto answer = QMessageBox::question(
+            dock, QStringLiteral("Aktualizacja Tazzio iPhone Camera"),
+            QStringLiteral("Zainstalować wersję %1?\n\nInstalator pobierze się automatycznie, "
+                           "zamknie OBS na czas podmiany pluginu i ponownie go uruchomi.")
+                .arg(latest));
+        if (answer != QMessageBox::Yes)
+            return;
+        check_updates->setEnabled(false);
+        install_update->setEnabled(false);
+        version_status->setText(QStringLiteral("Pobieranie aktualizacji %1…").arg(latest));
+        session->download_update(latest, update_url, sha256, size);
     });
     QObject::connect(session, &tazzio::CameraSession::updateCheckFinished, dock,
-                     [=](const QString &latest, bool available, const QUrl &download_url) {
+                     [=](const QString &latest, bool available, const QUrl &download_url,
+                         const QString &sha256, qint64 size) {
                          check_updates->setEnabled(true);
                          if (available) {
                              version_status->setText(QStringLiteral("Dostępna aktualizacja: %1 (zainstalowana: %2)").arg(latest, installed_version));
-                             install_update->setText(QStringLiteral("Pobierz aktualizację %1").arg(latest));
+                             install_update->setText(QStringLiteral("Zaktualizuj do %1").arg(latest));
                              install_update->setProperty("updateUrl", download_url);
+                             install_update->setProperty("updateVersion", latest);
+                             install_update->setProperty("updateSha256", sha256);
+                             install_update->setProperty("updateSize", size);
+                             install_update->setEnabled(true);
                              install_update->show();
                          } else {
                              version_status->setText(QStringLiteral("Wersja %1 · aktualna").arg(installed_version));
@@ -294,6 +314,24 @@ void register_iphone_camera_dock()
         version_status->setText(QStringLiteral("Wersja %1 · nie udało się sprawdzić aktualizacji").arg(installed_version));
         install_update->hide();
     });
+    QObject::connect(session, &tazzio::CameraSession::updateDownloadProgress, dock,
+                     [=](qint64 received, qint64 total) {
+                         if (total <= 0)
+                             total = install_update->property("updateSize").toLongLong();
+                         const auto percent = total > 0 ? qBound<qint64>(0, received * 100 / total, 100) : 0;
+                         version_status->setText(QStringLiteral("Pobieranie aktualizacji… %1%").arg(percent));
+                     });
+    QObject::connect(session, &tazzio::CameraSession::updateInstallerStarted, dock,
+                     [=](const QString &version) {
+                         version_status->setText(QStringLiteral("Uruchomiono aktualizację do %1. OBS zostanie zamknięty i uruchomiony ponownie.").arg(version));
+                         install_update->hide();
+                     });
+    QObject::connect(session, &tazzio::CameraSession::updateInstallFailed, dock,
+                     [=](const QString &message) {
+                         check_updates->setEnabled(true);
+                         install_update->setEnabled(true);
+                         version_status->setText(QStringLiteral("Aktualizacja nie powiodła się: %1").arg(message));
+                     });
 
     QObject::connect(camera_select, qOverload<int>(&QComboBox::activated), dock, [=](int index) {
         const auto device_id = camera_select->itemData(index).toString();

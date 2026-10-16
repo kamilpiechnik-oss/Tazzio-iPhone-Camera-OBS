@@ -13,6 +13,9 @@ services:
       TOKEN_SECRET: ${TOKEN_SECRET}
       TURN_SECRET: ${TURN_SECRET}
       TURN_HOST: ${TURN_HOST}
+      UPDATE_DOWNLOAD_URL: ${UPDATE_DOWNLOAD_URL}
+      UPDATE_SHA256: ${UPDATE_SHA256}
+      UPDATE_SIZE: ${UPDATE_SIZE}
     read_only: true
     tmpfs:
       - /tmp:size=32m,mode=1777

@@ -27,6 +27,8 @@ public:
 
     void set_server(QUrl server);
     void check_for_updates();
+    void download_update(const QString &version, const QUrl &download_url,
+                         const QString &sha256, qint64 expected_size);
     void create_pairing(const QString &mode);
     void send_camera_command(const QString &control, const QJsonValue &value);
     void disconnect_session();
@@ -39,8 +41,12 @@ signals:
     void cameraCapabilitiesChanged(QJsonObject capabilities);
     void cameraStateChanged(QJsonObject state);
     void cameraCommandFinished(QString id, bool ok, QString message);
-    void updateCheckFinished(QString latestVersion, bool available, QUrl downloadUrl);
+    void updateCheckFinished(QString latestVersion, bool available, QUrl downloadUrl,
+                             QString sha256, qint64 size);
     void updateCheckFailed(QString message);
+    void updateDownloadProgress(qint64 received, qint64 total);
+    void updateInstallerStarted(QString version);
+    void updateInstallFailed(QString message);
     void errorOccurred(QString message);
 
 private:

@@ -8,8 +8,7 @@ import { randomId, signToken, turnCredentials, verifyToken } from './security.js
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const frontend = path.join(root, 'frontend');
 const downloads = path.join(frontend, 'downloads');
-const currentVersion = '1.0.5';
-const updatePage = 'https://tazzio.pl/pluginy/iphone-camera-obs/';
+const currentVersion = '1.0.6';
 const json = (res, status, value) => { const body = JSON.stringify(value); res.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'content-length': Buffer.byteLength(body), 'cache-control': 'no-store' }); res.end(body); };
 const fail = (res, status, code, message) => json(res, status, { error: code, message });
 const readBody = req => new Promise((resolve, reject) => { let body = ''; req.on('data', chunk => { body += chunk; if (body.length > 32768) reject(new Error('body_too_large')); }); req.on('end', () => { try { resolve(body ? JSON.parse(body) : {}); } catch { reject(new Error('invalid_json')); } }); req.on('error', reject); });
@@ -34,6 +33,9 @@ export function createCameraServer(config = {}) {
     turnTtl: Number(config.turnTtl ?? 3600),
     pairTtl: Number(config.pairTtl ?? 120),
     sessionTtl: Number(config.sessionTtl ?? 28800),
+    updateDownloadUrl: String(config.updateDownloadUrl ?? ''),
+    updateSha256: String(config.updateSha256 ?? '').toLowerCase(),
+    updateSize: Number(config.updateSize ?? 0),
   };
   const sessions = new Map();
   const sockets = new Map();
@@ -65,17 +67,24 @@ export function createCameraServer(config = {}) {
       if (req.method === 'GET' && url.pathname === '/api/health') return json(res, 200, { status: 'ok', product: 'tazzio-iphone-camera', version: currentVersion });
       if (req.method === 'GET' && url.pathname === '/api/camera/update') {
         const installed = url.searchParams.get('current') || '0.0.0';
+        if (!/^https:\/\/([a-z0-9-]+\.)*tazzio\.pl(?:\/|$)/i.test(cfg.updateDownloadUrl) ||
+            !/^[0-9a-f]{64}$/.test(cfg.updateSha256) || !Number.isSafeInteger(cfg.updateSize) ||
+            cfg.updateSize <= 0 || cfg.updateSize > 95 * 1024 * 1024) {
+          return fail(res, 503, 'update_unavailable', 'Metadane aktualizacji nie są jeszcze dostępne.');
+        }
         return json(res, 200, {
           latest_version: currentVersion,
           update_available: compareVersions(installed, currentVersion) < 0,
-          download_url: updatePage,
+          download_url: cfg.updateDownloadUrl,
+          sha256: cfg.updateSha256,
+          size: cfg.updateSize,
         });
       }
       if (req.method === 'POST' && url.pathname === '/api/camera/sessions') {
         if (!cfg.turnSecret) return fail(res, 503, 'turn_unconfigured', 'TURN nie jest skonfigurowany.');
         const body = await readBody(req);
         const mode = body.mode === 'internet' ? 'internet' : 'lan';
-        const browserReceiver = ['1.0.3', '1.0.4', '1.0.5'].includes(body.client_version);
+        const browserReceiver = ['1.0.3', '1.0.4', '1.0.5', '1.0.6'].includes(body.client_version);
         const id = randomId();
         sessions.set(id, { expiresAt: Date.now() + cfg.sessionTtl * 1000, paired: false, mode, browserReceiver });
         const pairToken = signToken({ type: 'camera-pair', sub: id }, cfg.tokenSecret, cfg.pairTtl);

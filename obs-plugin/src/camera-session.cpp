@@ -3,12 +3,18 @@
 #include <rtc/rtc.hpp>
 
 #include <QJsonArray>
+#include <QCryptographicHash>
+#include <QDir>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QMetaObject>
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
 #include <QNetworkRequest>
+#include <QProcess>
+#include <QRegularExpression>
+#include <QSaveFile>
+#include <QStandardPaths>
 #include <QUrlQuery>
 
 namespace tazzio {
@@ -78,15 +84,115 @@ void CameraSession::check_for_updates()
         const auto latest = object.value(QStringLiteral("latest_version")).toString();
         const auto available = object.value(QStringLiteral("update_available")).toBool();
         const QUrl download_url(object.value(QStringLiteral("download_url")).toString());
+        const auto sha256 = object.value(QStringLiteral("sha256")).toString().toLower();
+        const auto size = object.value(QStringLiteral("size")).toVariant().toLongLong();
         const auto trusted_download = download_url.scheme() == QStringLiteral("https") &&
                                       (download_url.host() == QStringLiteral("tazzio.pl") ||
                                        download_url.host().endsWith(QStringLiteral(".tazzio.pl")));
-        if (latest.isEmpty() || download_url.isEmpty() || !download_url.isValid() || !trusted_download)
+        const auto valid_version = QRegularExpression(QStringLiteral(R"(^\d+(?:\.\d+){1,3}$)"))
+                                       .match(latest).hasMatch();
+        const auto valid_hash = QRegularExpression(QStringLiteral(R"(^[0-9a-f]{64}$)"))
+                                    .match(sha256).hasMatch();
+        if (!valid_version || download_url.isEmpty() || !download_url.isValid() || !trusted_download ||
+            !valid_hash || size <= 0 || size > 95LL * 1024LL * 1024LL)
             emit updateCheckFailed(QStringLiteral("Serwer aktualizacji zwrócił niepełne dane."));
         else
-            emit updateCheckFinished(latest, available, download_url);
+            emit updateCheckFinished(latest, available, download_url, sha256, size);
         reply->deleteLater();
     });
+}
+
+void CameraSession::download_update(const QString &version, const QUrl &download_url,
+                                    const QString &sha256, qint64 expected_size)
+{
+#ifndef _WIN32
+    emit updateInstallFailed(QStringLiteral("Automatyczna aktualizacja jest dostępna tylko w Windows."));
+    return;
+#else
+    const auto trusted_download = download_url.scheme() == QStringLiteral("https") &&
+                                  (download_url.host() == QStringLiteral("tazzio.pl") ||
+                                   download_url.host().endsWith(QStringLiteral(".tazzio.pl")));
+    const auto valid_version = QRegularExpression(QStringLiteral(R"(^\d+(?:\.\d+){1,3}$)"))
+                                   .match(version).hasMatch();
+    const auto valid_hash = QRegularExpression(QStringLiteral(R"(^[0-9a-fA-F]{64}$)"))
+                                .match(sha256).hasMatch();
+    if (!trusted_download || !valid_version || !valid_hash || expected_size <= 0 ||
+        expected_size > 95LL * 1024LL * 1024LL) {
+        emit updateInstallFailed(QStringLiteral("Dane instalatora są nieprawidłowe."));
+        return;
+    }
+
+    QNetworkRequest request(download_url);
+    request.setRawHeader("Cache-Control", "no-cache");
+    request.setAttribute(QNetworkRequest::RedirectPolicyAttribute,
+                         QNetworkRequest::NoLessSafeRedirectPolicy);
+    auto *reply = network_->get(request);
+    auto bytes = std::make_shared<QByteArray>();
+    auto oversized = std::make_shared<bool>(false);
+    connect(reply, &QNetworkReply::downloadProgress, this,
+            [this](qint64 received, qint64 total) { emit updateDownloadProgress(received, total); });
+    connect(reply, &QIODevice::readyRead, this, [reply, bytes, oversized, expected_size] {
+        const auto chunk = reply->readAll();
+        if (*oversized)
+            return;
+        if (bytes->size() + chunk.size() > expected_size) {
+            *oversized = true;
+            bytes->clear();
+            reply->abort();
+            return;
+        }
+        bytes->append(chunk);
+    });
+    connect(reply, &QNetworkReply::finished, this,
+            [this, reply, bytes, oversized, version, sha256, expected_size] {
+        if (!*oversized)
+            bytes->append(reply->readAll());
+        const auto final_url = reply->url();
+        const auto trusted_final = final_url.scheme() == QStringLiteral("https") &&
+                                   (final_url.host() == QStringLiteral("tazzio.pl") ||
+                                    final_url.host().endsWith(QStringLiteral(".tazzio.pl")));
+        if (*oversized || reply->error() != QNetworkReply::NoError || !trusted_final ||
+            bytes->size() != expected_size) {
+            emit updateInstallFailed(*oversized
+                                         ? QStringLiteral("Instalator przekroczył oczekiwany rozmiar.")
+                                         : QStringLiteral("Nie udało się pobrać instalatora: %1").arg(reply->errorString()));
+            reply->deleteLater();
+            return;
+        }
+        const auto actual_hash = QString::fromLatin1(
+            QCryptographicHash::hash(*bytes, QCryptographicHash::Sha256).toHex());
+        if (actual_hash.compare(sha256, Qt::CaseInsensitive) != 0) {
+            emit updateInstallFailed(QStringLiteral("Suma kontrolna instalatora jest nieprawidłowa."));
+            reply->deleteLater();
+            return;
+        }
+
+        const auto directory = QStandardPaths::writableLocation(QStandardPaths::TempLocation) +
+                               QStringLiteral("/TazzioIPhoneCameraUpdater");
+        if (!QDir().mkpath(directory)) {
+            emit updateInstallFailed(QStringLiteral("Nie można przygotować katalogu aktualizacji."));
+            reply->deleteLater();
+            return;
+        }
+        const auto path = directory + QStringLiteral("/Tazzio-iPhone-Camera-Setup-") + version +
+                          QStringLiteral(".exe");
+        QSaveFile file(path);
+        if (!file.open(QIODevice::WriteOnly) || file.write(*bytes) != bytes->size() || !file.commit()) {
+            emit updateInstallFailed(QStringLiteral("Nie można zapisać instalatora aktualizacji."));
+            reply->deleteLater();
+            return;
+        }
+        const QStringList arguments{QStringLiteral("/SILENT"), QStringLiteral("/CLOSEAPPLICATIONS"),
+                                    QStringLiteral("/RESTARTAPPLICATIONS")};
+        if (!QProcess::startDetached(path, arguments)) {
+            emit updateInstallFailed(QStringLiteral("Nie można uruchomić instalatora aktualizacji."));
+            reply->deleteLater();
+            return;
+        }
+        emit updateInstallerStarted(version);
+        reply->deleteLater();
+    });
+#endif
 }
 
 void CameraSession::create_pairing(const QString &mode)
