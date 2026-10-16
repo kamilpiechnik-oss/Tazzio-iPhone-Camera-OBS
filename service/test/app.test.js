@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import { createCameraServer } from '../src/app.js';
 
@@ -140,6 +141,13 @@ test('dock-selected mode reaches camera and browser receiver with restored quali
     assert.match(receiverCss, /width:\s*100vw/);
     assert.match(receiverCss, /::-webkit-scrollbar/);
   } finally { await app.close(); }
+});
+
+test('Windows workflow packages the current installer version', () => {
+  const workflow = readFileSync(new URL('../../.github/workflows/build.yml', import.meta.url), 'utf8');
+  assert.match(workflow, /Tazzio-iPhone-Camera-1\.0\.8-windows-x64/);
+  assert.match(workflow, /Tazzio-iPhone-Camera-Setup-1\.0\.8\.exe/);
+  assert.doesNotMatch(workflow, /Tazzio-iPhone-Camera-(?:1\.0\.7)-windows-x64/);
 });
 
 test('internet session returns TURN-only configuration to both peers', async () => {
