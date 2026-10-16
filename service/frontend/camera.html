@@ -31,10 +31,10 @@
     </label>
     <label>Profil jakości
       <select id="quality">
-        <option value="lowLatency">NISKIE OPÓŹNIENIE · 1080p / bitrate zależny od FPS</option>
-        <option value="balanced" selected>WYSOKA · 1080p / bitrate zależny od FPS</option>
-        <option value="highQuality">MAKSYMALNA · 1080p / bitrate zależny od FPS</option>
-        <option value="weakNetwork">OSZCZĘDNA · 720p / bitrate zależny od FPS</option>
+        <option value="lowLatency">NISKIE OPÓŹNIENIE · 1080p30 / 720p60</option>
+        <option value="balanced" selected>WYSOKA · 1080p30 / 720p60</option>
+        <option value="highQuality">MAKSYMALNA · 1080p30 / 720p60 · wyższy bitrate</option>
+        <option value="weakNetwork">OSZCZĘDNA · 720p30 / 720p60 · niższy bitrate</option>
       </select>
     </label>
     <label>FPS
@@ -55,6 +55,6 @@
   <p id="stats" class="stats"></p>
   <p class="notice">W trybie LAN komputer i iPhone muszą być w tej samej sieci Wi‑Fi. Tryb Internet wymusza trasę przez VPS i działa również przez sieć komórkową. Pozostaw Safari otwarte i nie blokuj ekranu.</p>
 </main>
-<script src="/camera.js?v=1.0.6-3" type="module"></script>
+<script src="/camera.js?v=1.0.7" type="module"></script>
 </body>
 </html>
