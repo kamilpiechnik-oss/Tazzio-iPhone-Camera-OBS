@@ -15,6 +15,7 @@ function requestedFps() { return Number($('#fps').value) || Number(state.stream?
 function targetBitrate() { const scaled = activeProfile().bitrateAt30 * Math.max(1, requestedFps() / 30); return Math.round(Math.min(scaled, selectedMode() === 'internet' ? 24000000 : 60000000)); }
 function selectedMode() { return state.mode; }
 function selectedIceServers() { return state.iceServers; }
+function isIOSWebKit() { return /iP(?:hone|ad|od)/.test(navigator.userAgent) || (/Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints > 1); }
 function sendMessage(type, payload) { if (state.ws?.readyState === WebSocket.OPEN) state.ws.send(JSON.stringify({ type, payload })); }
 
 async function pair() {
@@ -32,12 +33,12 @@ async function pair() {
 function restoreChoices() { $('#quality').value = localStorage.getItem('tazzioCameraQuality') || 'balanced'; $('#fps').value = localStorage.getItem('tazzioCameraFps') || '0'; $('#lens').value = localStorage.getItem('tazzioCameraLens') || 'environment'; $('#audio').checked = localStorage.getItem('tazzioCameraAudio') === 'true'; }
 function saveChoices() { localStorage.setItem('tazzioCameraQuality', $('#quality').value); localStorage.setItem('tazzioCameraFps', $('#fps').value); localStorage.setItem('tazzioCameraLens', $('#lens').value); localStorage.setItem('tazzioCameraAudio', String($('#audio').checked)); }
 function updateModeNote() { const lan = selectedMode() === 'lan'; $('#mode-note').textContent = lan ? 'LAN: obraz idzie bezpośrednio z iPhone’a do komputera. VPS służy tylko do sparowania urządzeń.' : 'Internet: obraz jest wymuszony przez bezpieczny przekaźnik TURN na VPS — użyj poza domowym Wi‑Fi.'; $('#mode-pill').textContent = lan ? 'LAN DIRECT' : 'VPS RELAY'; $('#mode-pill').classList.toggle('relay', !lan); }
-function selectedVideoConstraints() { const profile = activeProfile(); const fps = requestedFps(); const lens = $('#lens').value; const explicitFps = Number($('#fps').value); const frameRate = explicitFps >= 50 ? { min: fps, ideal: fps, max: fps } : { ideal: fps, max: fps }; const video = { width: { ideal: profile.width }, height: { ideal: profile.height }, frameRate }; if (lens.startsWith('device:')) video.deviceId = { exact: lens.slice(7) }; else video.facingMode = { ideal: lens }; return video; }
+function selectedVideoConstraints() { const profile = activeProfile(); const fps = requestedFps(); const lens = $('#lens').value; const explicitFps = Number($('#fps').value); const frameRate = explicitFps >= 50 ? { exact: fps } : { ideal: fps, max: fps }; const video = { width: { ideal: profile.width }, height: { ideal: profile.height }, frameRate }; if (lens.startsWith('device:')) video.deviceId = { exact: lens.slice(7) }; else video.facingMode = { ideal: lens }; return video; }
 async function preferH264(transceiver) { if (!transceiver?.setCodecPreferences || !RTCRtpSender.getCapabilities) return; const codecs = RTCRtpSender.getCapabilities('video')?.codecs || []; const h264 = codecs.filter(codec => codec.mimeType.toLowerCase() === 'video/h264'); const rest = codecs.filter(codec => codec.mimeType.toLowerCase() !== 'video/h264'); if (h264.length) transceiver.setCodecPreferences([...h264, ...rest]); }
 async function applyQuality(strict = false) { const sender = state.pc?.getSenders().find(item => item.track?.kind === 'video'); if (!sender) return; const parameters = sender.getParameters(); if (!parameters.encodings?.length) parameters.encodings = [{}]; parameters.encodings[0].maxBitrate = targetBitrate(); parameters.encodings[0].maxFramerate = requestedFps(); parameters.encodings[0].scaleResolutionDownBy = 1; parameters.degradationPreference = 'maintain-resolution'; try { await sender.setParameters(parameters); } catch (error) { if (strict) throw new Error('Safari nie pozwoliło zmienić jakości nadajnika WebRTC.'); } }
 async function restoreFocus(track) { const modes = track?.getCapabilities?.().focusMode; if (!Array.isArray(modes) || !modes.length) return; const preferred = modes.includes(state.focusMode) ? state.focusMode : modes.includes('continuous') ? 'continuous' : ''; if (!preferred) return; try { await track.applyConstraints({ advanced: [{ focusMode: preferred }] }); state.focusMode = preferred; } catch {} }
 async function populateCameras() { const devices = (await navigator.mediaDevices.enumerateDevices()).filter(device => device.kind === 'videoinput'); const existing = new Set([...$('#lens').options].map(option => option.value)); devices.forEach((device, index) => { const value = `device:${device.deviceId}`; if (existing.has(value)) return; const option = document.createElement('option'); option.value = value; option.textContent = device.label || `Kamera ${index + 1}`; $('#lens').append(option); }); return devices; }
-function updateCapabilities() { const track = state.stream?.getVideoTracks()[0]; const caps = track?.getCapabilities?.() || {}; const maxFps = Number(caps.frameRate?.max || 0); for (const option of $('#fps').options) { if (option.value === '0') continue; option.disabled = maxFps > 0 && Number(option.value) > maxFps; } }
+function updateCapabilities() { const track = state.stream?.getVideoTracks()[0]; const caps = track?.getCapabilities?.() || {}; const reportedMax = Number(caps.frameRate?.max || 0); const selectableMax = isIOSWebKit() ? Math.max(60, reportedMax) : reportedMax; for (const option of $('#fps').options) { if (option.value === '0') continue; option.disabled = selectableMax > 0 && Number(option.value) > selectableMax; } }
 
 function rangeCapability(caps, settings, name) {
   const range = caps[name];
@@ -59,8 +60,9 @@ async function cameraCapabilities(videoOverride = {}) {
   if (Object.prototype.hasOwnProperty.call(caps, 'torch')) controls.torch = { type: 'boolean', value: Boolean(settings.torch) };
   if (caps.frameRate && Number.isFinite(Number(caps.frameRate.max))) {
     const min = Number(caps.frameRate.min || 1); const max = Number(caps.frameRate.max); const current = Math.round(Number(settings.frameRate || 0));
-    const values = [...new Set([24, 25, 30, 50, 60, 90, 120, 144, 240, current].filter(value => value >= min && value <= max))].sort((a, b) => a - b);
-    if (values.length) controls.frameRate = { type: 'enum', values, value: current || values[0], max };
+    const selectableMax = isIOSWebKit() ? Math.max(60, max) : max;
+    const values = [...new Set([24, 25, 30, 50, 60, 90, 120, 144, 240, current].filter(value => value >= min && value <= selectableMax))].sort((a, b) => a - b);
+    if (values.length) controls.frameRate = { type: 'enum', values, value: current || values[0], max: selectableMax, reportedMax: max };
   }
   controls.quality = { type: 'enum', values: Object.keys(profiles), value: $('#quality').value };
   const preview = $('#preview'); const width = Number(preview.videoWidth || settings.width || 0); const height = Number(preview.videoHeight || settings.height || 0);
@@ -76,6 +78,30 @@ async function replaceVideoTrack(video, lensValue = '') {
   const oldTrack = state.stream?.getVideoTracks()[0]; const sender = state.pc?.getSenders().find(item => item.track?.kind === 'video');
   try { if (sender) await sender.replaceTrack(newTrack); if (oldTrack) { state.stream.removeTrack(oldTrack); oldTrack.stop(); } state.stream.addTrack(newTrack); $('#preview').srcObject = state.stream; if (lensValue) $('#lens').value = lensValue; saveChoices(); updateCapabilities(); await applyQuality(); return newTrack; }
   catch (error) { newTrack.stop(); throw error; }
+}
+async function reopenVideoTrack(candidates, lensValue = '') {
+  const oldTrack = state.stream?.getVideoTracks()[0]; if (!oldTrack) throw new Error('Kamera nie jest uruchomiona.');
+  const sender = state.pc?.getSenders().find(item => item.track?.kind === 'video');
+  const oldSettings = oldTrack.getSettings?.() || {};
+  state.stream.removeTrack(oldTrack); oldTrack.stop();
+  let newTrack; let lastError;
+  for (const video of candidates) {
+    try { const fresh = await navigator.mediaDevices.getUserMedia({ video, audio: false }); newTrack = fresh.getVideoTracks()[0]; if (newTrack) break; }
+    catch (error) { lastError = error; }
+  }
+  if (!newTrack) {
+    const recovery = { width: { ideal: oldSettings.width || 1920 }, height: { ideal: oldSettings.height || 1080 }, frameRate: { ideal: oldSettings.frameRate || 30 } };
+    if (oldSettings.deviceId) recovery.deviceId = { exact: oldSettings.deviceId }; else recovery.facingMode = { ideal: $('#lens').value };
+    try { const restored = await navigator.mediaDevices.getUserMedia({ video: recovery, audio: false }); newTrack = restored.getVideoTracks()[0]; }
+    catch {}
+    if (!newTrack) throw lastError || new Error('Safari nie uruchomiło ponownie kamery.');
+    if (sender) await sender.replaceTrack(newTrack); state.stream.addTrack(newTrack); $('#preview').srcObject = state.stream; updateCapabilities(); await applyQuality();
+    throw lastError || new Error('Wybrany FPS nie jest dostępny dla tej kamery.');
+  }
+  if ('contentHint' in newTrack) newTrack.contentHint = 'detail';
+  await restoreFocus(newTrack);
+  if (sender) await sender.replaceTrack(newTrack);
+  state.stream.addTrack(newTrack); $('#preview').srcObject = state.stream; if (lensValue) $('#lens').value = lensValue; saveChoices(); updateCapabilities(); await applyQuality(true); return newTrack;
 }
 async function switchCamera(deviceId) {
   if (!deviceId) throw new Error('Nie wybrano kamery.');
@@ -97,12 +123,21 @@ async function setQualityProfile(value) {
 }
 async function setFrameRate(value) {
   const requested = Number(value); if (!Number.isFinite(requested) || requested <= 0) throw new Error('Nieprawidłowy FPS.');
-  let track = state.stream?.getVideoTracks()[0]; const caps = track?.getCapabilities?.() || {};
-  if (!track || !caps.frameRate || requested < Number(caps.frameRate.min || 0) || requested > Number(caps.frameRate.max || 0)) throw new Error('Wybrany FPS nie jest obsługiwany przez tę kamerę.');
+  let track = state.stream?.getVideoTracks()[0];
+  if (!track) throw new Error('Kamera nie jest uruchomiona.');
   const option = [...$('#fps').options].find(item => Number(item.value) === requested); if (option) $('#fps').value = option.value;
   const video = selectedVideoConstraints(); const deviceId = track.getSettings?.().deviceId;
   if (deviceId) { delete video.facingMode; video.deviceId = { exact: deviceId }; }
-  if (requested >= 50) track = await replaceVideoTrack(video, deviceId ? `device:${deviceId}` : '');
+  if (requested >= 50) {
+    const camera = deviceId ? { deviceId: { exact: deviceId } } : { facingMode: { ideal: $('#lens').value } };
+    const exactFrameRate = { exact: requested };
+    const profile = activeProfile();
+    track = await reopenVideoTrack([
+      { ...camera, width: { ideal: profile.width }, height: { ideal: profile.height }, frameRate: exactFrameRate },
+      { ...camera, width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: exactFrameRate },
+      { ...camera, frameRate: exactFrameRate },
+    ], deviceId ? `device:${deviceId}` : '');
+  }
   else try { await track.applyConstraints(video); }
   catch { track = await replaceVideoTrack(video, deviceId ? `device:${deviceId}` : ''); }
   let actual = Number(track.getSettings?.().frameRate || 0);
@@ -159,7 +194,7 @@ async function start() {
 async function sendOffer() { if (!state.pc || state.pc.signalingState !== 'stable') return; const offer = await state.pc.createOffer(); await state.pc.setLocalDescription(offer); await applyQuality(); sendMessage('offer', { type: 'offer', sdp: state.pc.localDescription.sdp }); }
 function lockControls(locked) { for (const control of document.querySelectorAll('.controls select,.controls input')) control.disabled = locked; }
 async function keepAwake() { try { if ('wakeLock' in navigator) state.wakeLock = await navigator.wakeLock.request('screen'); } catch {} }
-async function updateStats() { const track = state.stream?.getVideoTracks()[0]; if (!track) return; const settings = track.getSettings(); let outbound, pair, localCandidate, remoteCandidate; const reports = state.pc ? await state.pc.getStats() : []; reports.forEach(report => { if (report.type === 'outbound-rtp' && report.kind === 'video') outbound = report; if (report.type === 'candidate-pair' && report.state === 'succeeded' && (report.nominated || !pair)) pair = report; }); if (pair) reports.forEach(report => { if (report.id === pair.localCandidateId) localCandidate = report; if (report.id === pair.remoteCandidateId) remoteCandidate = report; }); const now = performance.now(); let bitrate = 0; if (outbound && state.previousStats.at) bitrate = (outbound.bytesSent - state.previousStats.bytes) * 8 / (now - state.previousStats.at) / 1000; if (outbound) state.previousStats = { at: now, bytes: outbound.bytesSent }; const relay = localCandidate?.candidateType === 'relay' || remoteCandidate?.candidateType === 'relay'; const route = relay ? 'VPS TURN' : selectedMode() === 'lan' ? 'LAN DIRECT' : 'DIRECT P2P'; const rtt = Math.round((pair?.currentRoundTripTime || 0) * 1000); const actualFps = Math.round(outbound?.framesPerSecond || settings.frameRate || 0); const width = Number($('#preview').videoWidth || settings.width || 0); const height = Number($('#preview').videoHeight || settings.height || 0); $('#stats').textContent = `${width || '?'}×${height || '?'} · ${actualFps} FPS · ${bitrate ? bitrate.toFixed(1) : '—'} Mb/s · ${route}${rtt ? ` · ${rtt} ms` : ''}`; const signature = `${width}x${height}@${actualFps}:${bitrate.toFixed(1)}`; if (signature !== state.lastVideoState) { state.lastVideoState = signature; reportCameraCapabilities('camera-state', { width, height, frameRate: actualFps, actualBitrateMbps: bitrate }).catch(() => {}); } }
+async function updateStats() { const track = state.stream?.getVideoTracks()[0]; if (!track) return; const settings = track.getSettings(); let outbound, pair, localCandidate, remoteCandidate; const reports = state.pc ? await state.pc.getStats() : []; reports.forEach(report => { if (report.type === 'outbound-rtp' && report.kind === 'video') outbound = report; if (report.type === 'candidate-pair' && report.state === 'succeeded' && (report.nominated || !pair)) pair = report; }); if (pair) reports.forEach(report => { if (report.id === pair.localCandidateId) localCandidate = report; if (report.id === pair.remoteCandidateId) remoteCandidate = report; }); const now = performance.now(); let bitrate = 0; if (outbound && state.previousStats.at) bitrate = (outbound.bytesSent - state.previousStats.bytes) * 8 / (now - state.previousStats.at) / 1000; if (outbound) state.previousStats = { at: now, bytes: outbound.bytesSent }; const relay = localCandidate?.candidateType === 'relay' || remoteCandidate?.candidateType === 'relay'; const route = relay ? 'VPS TURN' : selectedMode() === 'lan' ? 'LAN DIRECT' : 'DIRECT P2P'; const rtt = Math.round((pair?.currentRoundTripTime || 0) * 1000); const actualFps = Math.round(outbound?.framesPerSecond || settings.frameRate || 0); const width = Number($('#preview').videoWidth || settings.width || 0); const height = Number($('#preview').videoHeight || settings.height || 0); $('#stats').textContent = `${width || '?'}×${height || '?'} · ${actualFps} FPS · ${bitrate ? bitrate.toFixed(1) : '—'} Mb/s · ${route}${rtt ? ` · ${rtt} ms` : ''}`; const signature = `${width}x${height}@${actualFps}:${bitrate.toFixed(1)}`; if (signature !== state.lastVideoState) { state.lastVideoState = signature; if (!state.commandBusy) reportCameraCapabilities('camera-state', { width, height, frameRate: actualFps, actualBitrateMbps: bitrate }).catch(() => {}); } }
 function startStats() { clearInterval(state.statsTimer); state.previousStats = { at: 0, bytes: 0 }; state.statsTimer = setInterval(() => updateStats().catch(() => {}), 1000); updateStats().catch(() => {}); }
 function stop() { clearInterval(state.statsTimer); state.statsTimer = null; state.lastVideoState = ''; state.ws?.close(); state.ws = null; state.pc?.close(); state.pc = null; state.stream?.getTracks().forEach(track => track.stop()); state.stream = null; $('#preview').srcObject = null; $('#preview').onresize = null; $('#placeholder').hidden = false; state.wakeLock?.release?.(); state.wakeLock = null; $('#stop').hidden = true; $('#start').hidden = false; $('#start').disabled = !state.ready; lockControls(false); updateCapabilities(); setStatus(state.ready ? 'Transmisja zatrzymana. Możesz zmienić ustawienia i uruchomić ją ponownie.' : 'Transmisja zatrzymana.'); }
 async function resumeAfterBackground() {

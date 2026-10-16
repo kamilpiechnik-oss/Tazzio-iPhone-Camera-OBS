@@ -92,8 +92,13 @@ test('dock-selected mode reaches camera and browser receiver with restored quali
     assert.match(html, /MAKSYMALNA · 1080p \/ bitrate zależny od FPS/);
     assert.match(script, /iceTransportPolicy\s*=\s*'relay'/);
     assert.match(script, /degradationPreference\s*=\s*'maintain-resolution'/);
-    assert.match(script, /explicitFps >= 50 \? \{ min: fps, ideal: fps, max: fps \}/);
-    assert.match(script, /requested >= 50\) track = await replaceVideoTrack/);
+    assert.match(script, /explicitFps >= 50 \? \{ exact: fps \}/);
+    assert.match(script, /requested >= 50\) \{/);
+    assert.match(script, /track = await reopenVideoTrack/);
+    assert.match(script, /frameRate: exactFrameRate/);
+    assert.match(script, /oldTrack\.stop\(\)/);
+    assert.match(script, /Math\.max\(60, max\)/);
+    assert.match(script, /if \(!state\.commandBusy\) reportCameraCapabilities/);
     assert.match(script, /focusMode: preferred/);
     assert.match(script, /actualBitrateMbps: bitrate/);
     assert.match(script, /visibilitychange/);
@@ -104,6 +109,7 @@ test('dock-selected mode reaches camera and browser receiver with restored quali
     assert.match(script, /bitrateAt30 \* Math\.max\(1, requestedFps\(\) \/ 30\)/);
     assert.match(script, /else if \(control === 'quality'\) await setQualityProfile\(value\)/);
     assert.match(script, /await applyQuality\(true\)/);
+    assert.match(html, /camera\.js\?v=1\.0\.6-3/);
     assert.match(receiver, /iceTransportPolicy='relay'/);
     assert.match(receiver, /message\.type==='peer'&&!message\.ready\)closePeer/);
     assert.match(receiver, /track\.addEventListener\('mute'/);
