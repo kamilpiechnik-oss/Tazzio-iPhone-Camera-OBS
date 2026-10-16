@@ -73,7 +73,7 @@ test('dock-selected mode reaches camera and browser receiver with restored quali
     const script = await fetch(`${base}/camera.js`).then(response => response.text());
     const receiver = await fetch(`${base}/receiver.js`).then(response => response.text());
     const receiverHtml = await fetch(`${base}/camera-receiver/test-token`).then(response => response.text());
-    const receiverCss = await fetch(`${base}/receiver.css`).then(response => response.text());
+    const receiverCss = await fetch(`${base}/camera/receiver.css`).then(response => response.text());
     assert.doesNotMatch(html, /id="connection"/);
     assert.match(html, /WYSOKA · 1080p \/ bitrate zależny od FPS/);
     assert.match(html, /MAKSYMALNA · 1080p \/ bitrate zależny od FPS/);
@@ -92,7 +92,7 @@ test('dock-selected mode reaches camera and browser receiver with restored quali
     assert.match(script, /else if \(control === 'quality'\) await setQualityProfile\(value\)/);
     assert.match(script, /await applyQuality\(true\)/);
     assert.match(receiver, /iceTransportPolicy='relay'/);
-    assert.match(receiverHtml, /href="\/receiver\.css"/);
+    assert.match(receiverHtml, /href="\/camera\/receiver\.css"/);
     assert.match(receiverCss, /overflow:\s*hidden/);
     assert.match(receiverCss, /display:\s*block/);
     assert.match(receiverCss, /width:\s*100vw/);

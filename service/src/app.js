@@ -132,7 +132,8 @@ export function createCameraServer(config = {}) {
         return fs.createReadStream(filePath).pipe(res);
       }
       let file = url.pathname === '/' ? 'index.html' : url.pathname.slice(1);
-      if (/^camera\/[^/]+$/.test(file)) file = 'camera.html';
+      if (file === 'camera/receiver.css') file = 'receiver.css';
+      else if (/^camera\/[^/]+$/.test(file)) file = 'camera.html';
       if (/^camera-receiver\/[^/]+$/.test(file)) file = 'receiver.html';
       if (!['index.html', 'styles.css', 'camera.html', 'camera.css', 'camera.js', 'receiver.html', 'receiver.css', 'receiver.js'].includes(file)) return fail(res, 404, 'not_found', 'Nie znaleziono strony.');
       const filePath = path.join(frontend, file);
