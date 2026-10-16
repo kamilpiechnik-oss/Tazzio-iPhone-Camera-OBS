@@ -451,14 +451,15 @@ void register_iphone_camera_dock()
         const auto width = video.value(QStringLiteral("width")).toInt();
         const auto height = video.value(QStringLiteral("height")).toInt();
         const auto fps = qRound(video.value(QStringLiteral("frameRate")).toDouble());
+        const auto outbound_fps = qRound(video.value(QStringLiteral("outboundFrameRate")).toDouble());
         const auto target_bitrate = video.value(QStringLiteral("targetBitrateMbps")).toDouble();
         const auto actual_bitrate = video.value(QStringLiteral("actualBitrateMbps")).toDouble();
         const auto quality = camera_value_name(video.value(QStringLiteral("quality")).toString());
         if (width > 0 && height > 0) {
             update_camera_source_size(width, height);
             const auto route = stats->property("cameraRoute").toString();
-            stats->setText(QStringLiteral("%1 · obraz %2×%3 · %4 FPS · %5 · wysyłane %6 / limit %7 Mb/s")
-                               .arg(route).arg(width).arg(height).arg(fps).arg(quality)
+            stats->setText(QStringLiteral("%1 · obraz %2×%3 · kamera %4 FPS · wysyłanie %5 FPS · %6 · wysyłane %7 / limit %8 Mb/s")
+                               .arg(route).arg(width).arg(height).arg(fps).arg(outbound_fps > 0 ? QString::number(outbound_fps) : QStringLiteral("—")).arg(quality)
                                .arg(actual_bitrate, 0, 'f', 1).arg(target_bitrate, 0, 'f', 0));
         }
     };

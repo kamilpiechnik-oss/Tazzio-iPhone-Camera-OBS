@@ -8,7 +8,7 @@ import { randomId, signToken, turnCredentials, verifyToken } from './security.js
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const frontend = path.join(root, 'frontend');
 const downloads = path.join(frontend, 'downloads');
-const currentVersion = '1.0.7';
+const currentVersion = '1.0.8';
 const json = (res, status, value) => { const body = JSON.stringify(value); res.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'content-length': Buffer.byteLength(body), 'cache-control': 'no-store' }); res.end(body); };
 const fail = (res, status, code, message) => json(res, status, { error: code, message });
 const readBody = req => new Promise((resolve, reject) => { let body = ''; req.on('data', chunk => { body += chunk; if (body.length > 32768) reject(new Error('body_too_large')); }); req.on('end', () => { try { resolve(body ? JSON.parse(body) : {}); } catch { reject(new Error('invalid_json')); } }); req.on('error', reject); });
@@ -96,7 +96,7 @@ export function createCameraServer(config = {}) {
         if (!cfg.turnSecret) return fail(res, 503, 'turn_unconfigured', 'TURN nie jest skonfigurowany.');
         const body = await readBody(req);
         const mode = body.mode === 'internet' ? 'internet' : 'lan';
-        const browserReceiver = ['1.0.3', '1.0.4', '1.0.5', '1.0.6', '1.0.7'].includes(body.client_version);
+        const browserReceiver = ['1.0.3', '1.0.4', '1.0.5', '1.0.6', '1.0.7', '1.0.8'].includes(body.client_version);
         const id = randomId();
         const expiryTimer = setTimeout(() => expireSession(id), cfg.sessionTtl * 1000);
         expiryTimer.unref?.();
