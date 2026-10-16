@@ -120,10 +120,10 @@ void update_camera_source_size(int width, int height)
 
 QString camera_value_name(const QString &value)
 {
-    if (value == QStringLiteral("weakNetwork")) return QStringLiteral("Oszczędna · 720p30/60");
-    if (value == QStringLiteral("lowLatency")) return QStringLiteral("Niskie opóźnienie · 1080p30 / 720p60");
-    if (value == QStringLiteral("balanced")) return QStringLiteral("Wysoka · 1080p30 / 720p60");
-    if (value == QStringLiteral("highQuality")) return QStringLiteral("Maksymalna · 1080p30 / 720p60");
+    if (value == QStringLiteral("weakNetwork")) return QStringLiteral("Oszczędna · 720p");
+    if (value == QStringLiteral("lowLatency")) return QStringLiteral("Niskie opóźnienie · 1080p");
+    if (value == QStringLiteral("balanced")) return QStringLiteral("Wysoka · 1080p");
+    if (value == QStringLiteral("highQuality")) return QStringLiteral("Maksymalna · 1080p");
     if (value == QStringLiteral("continuous")) return QStringLiteral("Ciągły");
     if (value == QStringLiteral("single-shot")) return QStringLiteral("Pojedynczy");
     if (value == QStringLiteral("manual")) return QStringLiteral("Ręczny");

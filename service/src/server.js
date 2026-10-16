@@ -19,5 +19,5 @@ const app = createCameraServer({
 });
 
 await app.listen();
-console.log(JSON.stringify({ level: 'info', event: 'server_started', product: 'tazzio-iphone-camera', version: '1.0.7', port: Number(process.env.PORT ?? 8790) }));
+console.log(JSON.stringify({ level: 'info', event: 'server_started', product: 'tazzio-iphone-camera', version: '1.0.6', port: Number(process.env.PORT ?? 8790) }));
 for (const signal of ['SIGINT', 'SIGTERM']) process.on(signal, async () => { await app.close(); process.exit(0); });

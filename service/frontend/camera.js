@@ -13,7 +13,6 @@ function socketUrl(token) { const url = new URL('/camera-ws', location.origin); 
 function activeProfile() { return profiles[$('#quality').value] || profiles.balanced; }
 function requestedFps() { return Number($('#fps').value) || Number(state.stream?.getVideoTracks()[0]?.getSettings?.().frameRate) || activeProfile().fps; }
 function targetBitrate() { const scaled = activeProfile().bitrateAt30 * Math.max(1, requestedFps() / 30); return Math.round(Math.min(scaled, selectedMode() === 'internet' ? 24000000 : 60000000)); }
-function captureDimensions() { const profile = activeProfile(); return requestedFps() >= 50 ? { width: 1280, height: 720 } : { width: profile.width, height: profile.height }; }
 function selectedMode() { return state.mode; }
 function selectedIceServers() { return state.iceServers; }
 function isIOSWebKit() { return /iP(?:hone|ad|od)/.test(navigator.userAgent) || (/Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints > 1); }
@@ -34,7 +33,7 @@ async function pair() {
 function restoreChoices() { $('#quality').value = localStorage.getItem('tazzioCameraQuality') || 'balanced'; $('#fps').value = localStorage.getItem('tazzioCameraFps') || '0'; $('#lens').value = localStorage.getItem('tazzioCameraLens') || 'environment'; $('#audio').checked = localStorage.getItem('tazzioCameraAudio') === 'true'; }
 function saveChoices() { localStorage.setItem('tazzioCameraQuality', $('#quality').value); localStorage.setItem('tazzioCameraFps', $('#fps').value); localStorage.setItem('tazzioCameraLens', $('#lens').value); localStorage.setItem('tazzioCameraAudio', String($('#audio').checked)); }
 function updateModeNote() { const lan = selectedMode() === 'lan'; $('#mode-note').textContent = lan ? 'LAN: obraz idzie bezpośrednio z iPhone’a do komputera. VPS służy tylko do sparowania urządzeń.' : 'Internet: obraz jest wymuszony przez bezpieczny przekaźnik TURN na VPS — użyj poza domowym Wi‑Fi.'; $('#mode-pill').textContent = lan ? 'LAN DIRECT' : 'VPS RELAY'; $('#mode-pill').classList.toggle('relay', !lan); }
-function selectedVideoConstraints() { const dimensions = captureDimensions(); const fps = requestedFps(); const lens = $('#lens').value; const explicitFps = Number($('#fps').value); const frameRate = explicitFps >= 50 ? { exact: fps } : { ideal: fps, max: fps }; const video = { width: { ideal: dimensions.width }, height: { ideal: dimensions.height }, frameRate }; if (lens.startsWith('device:')) video.deviceId = { exact: lens.slice(7) }; else video.facingMode = { ideal: lens }; return video; }
+function selectedVideoConstraints() { const profile = activeProfile(); const fps = requestedFps(); const lens = $('#lens').value; const explicitFps = Number($('#fps').value); const frameRate = explicitFps >= 50 ? { exact: fps } : { ideal: fps, max: fps }; const video = { width: { ideal: profile.width }, height: { ideal: profile.height }, frameRate }; if (lens.startsWith('device:')) video.deviceId = { exact: lens.slice(7) }; else video.facingMode = { ideal: lens }; return video; }
 async function preferH264(transceiver) { if (!transceiver?.setCodecPreferences || !RTCRtpSender.getCapabilities) return; const codecs = RTCRtpSender.getCapabilities('video')?.codecs || []; const h264 = codecs.filter(codec => codec.mimeType.toLowerCase() === 'video/h264'); const rest = codecs.filter(codec => codec.mimeType.toLowerCase() !== 'video/h264'); if (h264.length) transceiver.setCodecPreferences([...h264, ...rest]); }
 async function applyQuality(strict = false) { const sender = state.pc?.getSenders().find(item => item.track?.kind === 'video'); if (!sender) return; const parameters = sender.getParameters(); if (!parameters.encodings?.length) parameters.encodings = [{}]; parameters.encodings[0].maxBitrate = targetBitrate(); parameters.encodings[0].maxFramerate = requestedFps(); parameters.encodings[0].scaleResolutionDownBy = 1; parameters.degradationPreference = 'maintain-resolution'; try { await sender.setParameters(parameters); } catch (error) { if (strict) throw new Error('Safari nie pozwoliło zmienić jakości nadajnika WebRTC.'); } }
 async function restoreFocus(track) { const modes = track?.getCapabilities?.().focusMode; if (!Array.isArray(modes) || !modes.length) return; const preferred = modes.includes(state.focusMode) ? state.focusMode : modes.includes('continuous') ? 'continuous' : ''; if (!preferred) return; try { await track.applyConstraints({ advanced: [{ focusMode: preferred }] }); state.focusMode = preferred; } catch {} }
@@ -132,7 +131,9 @@ async function setFrameRate(value) {
   if (requested >= 50) {
     const camera = deviceId ? { deviceId: { exact: deviceId } } : { facingMode: { ideal: $('#lens').value } };
     const exactFrameRate = { exact: requested };
+    const profile = activeProfile();
     track = await reopenVideoTrack([
+      { ...camera, width: { ideal: profile.width }, height: { ideal: profile.height }, frameRate: exactFrameRate },
       { ...camera, width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: exactFrameRate },
       { ...camera, frameRate: exactFrameRate },
     ], deviceId ? `device:${deviceId}` : '');
