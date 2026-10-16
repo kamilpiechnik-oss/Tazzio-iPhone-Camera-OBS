@@ -73,21 +73,27 @@ test('dock-selected mode reaches camera and browser receiver with restored quali
     const script = await fetch(`${base}/camera.js`).then(response => response.text());
     const receiver = await fetch(`${base}/receiver.js`).then(response => response.text());
     const receiverHtml = await fetch(`${base}/camera-receiver/test-token`).then(response => response.text());
+    const receiverCss = await fetch(`${base}/receiver.css`).then(response => response.text());
     assert.doesNotMatch(html, /id="connection"/);
     assert.match(html, /WYSOKA · 1080p \/ bitrate zależny od FPS/);
     assert.match(html, /MAKSYMALNA · 1080p \/ bitrate zależny od FPS/);
     assert.match(script, /iceTransportPolicy\s*=\s*'relay'/);
     assert.match(script, /degradationPreference\s*=\s*'maintain-resolution'/);
-    assert.match(script, /applyConstraints\(\{ frameRate:/);
+    assert.match(script, /explicitFps >= 50 \? \{ min: fps, ideal: fps, max: fps \}/);
+    assert.match(script, /requested >= 50\) track = await replaceVideoTrack/);
+    assert.match(script, /focusMode: preferred/);
+    assert.match(script, /actualBitrateMbps: bitrate/);
     assert.match(script, /video: \{ width, height, frameRate:/);
     assert.match(script, /controls\.quality/);
     assert.match(script, /bitrateAt30 \* Math\.max\(1, requestedFps\(\) \/ 30\)/);
     assert.match(script, /else if \(control === 'quality'\) await setQualityProfile\(value\)/);
     assert.match(script, /await applyQuality\(true\)/);
     assert.match(receiver, /iceTransportPolicy='relay'/);
-    assert.match(receiverHtml, /body\{position:fixed;inset:0\}/);
-    assert.match(receiverHtml, /video\{display:block;width:100vw;height:100vh/);
-    assert.match(receiverHtml, /::-webkit-scrollbar\{display:none/);
+    assert.match(receiverHtml, /href="\/receiver\.css"/);
+    assert.match(receiverCss, /overflow:\s*hidden/);
+    assert.match(receiverCss, /display:\s*block/);
+    assert.match(receiverCss, /width:\s*100vw/);
+    assert.match(receiverCss, /::-webkit-scrollbar/);
   } finally { await app.close(); }
 });
 
