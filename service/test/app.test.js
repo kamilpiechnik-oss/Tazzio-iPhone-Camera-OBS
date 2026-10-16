@@ -48,7 +48,7 @@ test('health identifies only iPhone Camera', async () => {
   await app.listen();
   try {
     const health = await fetch(`http://127.0.0.1:${app.server.address().port}/api/health`).then(r => r.json());
-    assert.deepEqual(health, { status: 'ok', product: 'tazzio-iphone-camera', version: '1.0.6' });
+    assert.deepEqual(health, { status: 'ok', product: 'tazzio-iphone-camera', version: '1.0.7' });
   } finally { await app.close(); }
 });
 
@@ -59,8 +59,8 @@ test('update endpoint returns a verified direct installer manifest', async () =>
   const base = `http://127.0.0.1:${app.server.address().port}`;
   try {
     const oldVersion = await fetch(`${base}/api/camera/update?current=1.0.3`).then(response => response.json());
-    assert.deepEqual(oldVersion, { latest_version: '1.0.6', update_available: true, download_url: update.updateDownloadUrl, sha256: update.updateSha256, size: update.updateSize });
-    const currentVersion = await fetch(`${base}/api/camera/update?current=1.0.6`).then(response => response.json());
+    assert.deepEqual(oldVersion, { latest_version: '1.0.7', update_available: true, download_url: update.updateDownloadUrl, sha256: update.updateSha256, size: update.updateSize });
+    const currentVersion = await fetch(`${base}/api/camera/update?current=1.0.7`).then(response => response.json());
     assert.equal(currentVersion.update_available, false);
     const futureVersion = await fetch(`${base}/api/camera/update?current=2.0.0`).then(response => response.json());
     assert.equal(futureVersion.update_available, false);
@@ -90,16 +90,24 @@ test('dock-selected mode reaches camera and browser receiver with restored quali
     assert.doesNotMatch(html, /id="connection"/);
     assert.match(html, /WYSOKA · 1080p \/ bitrate zależny od FPS/);
     assert.match(html, /MAKSYMALNA · 1080p \/ bitrate zależny od FPS/);
+    assert.match(html, /<option value="30">30<\/option>/);
+    assert.match(html, /<option value="60">60<\/option>/);
+    assert.doesNotMatch(html, /<option value="(?:24|120|240)">/);
     assert.match(script, /iceTransportPolicy\s*=\s*'relay'/);
     assert.match(script, /degradationPreference\s*=\s*'maintain-resolution'/);
     assert.match(script, /explicitFps >= 50 \? \{ exact: fps \}/);
     assert.match(script, /requested >= 50\) \{/);
     assert.match(script, /track = await reopenVideoTrack/);
     assert.match(script, /frameRate: exactFrameRate/);
+    assert.match(script, /width: \{ exact: profile\.width \}/);
+    assert.match(script, /captureMatches\(newTrack, expected\.width, expected\.height, expected\.fps\)/);
+    assert.match(script, /selectedCameraConstraint\(lens\)/);
+    assert.doesNotMatch(script, /width: \{ ideal: 1280 \}[^\n]+frameRate: exactFrameRate/);
     assert.match(script, /oldTrack\.stop\(\)/);
     assert.match(script, /Math\.max\(60, max\)/);
+    assert.match(script, /const values = \[30, 60\]/);
     assert.match(script, /if \(!state\.commandBusy\) reportCameraCapabilities/);
-    assert.match(script, /focusMode: preferred/);
+    assert.match(script, /preferContinuous && modes\.includes\('continuous'\)/);
     assert.match(script, /actualBitrateMbps: bitrate/);
     assert.match(script, /visibilitychange/);
     assert.match(script, /resumeAfterBackground/);
@@ -109,7 +117,7 @@ test('dock-selected mode reaches camera and browser receiver with restored quali
     assert.match(script, /bitrateAt30 \* Math\.max\(1, requestedFps\(\) \/ 30\)/);
     assert.match(script, /else if \(control === 'quality'\) await setQualityProfile\(value\)/);
     assert.match(script, /await applyQuality\(true\)/);
-    assert.match(html, /camera\.js\?v=1\.0\.6-3/);
+    assert.match(html, /camera\.js\?v=1\.0\.7/);
     assert.match(receiver, /iceTransportPolicy='relay'/);
     assert.match(receiver, /message\.type==='peer'&&!message\.ready\)closePeer/);
     assert.match(receiver, /track\.addEventListener\('mute'/);

@@ -17,6 +17,14 @@ function selectedMode() { return state.mode; }
 function selectedIceServers() { return state.iceServers; }
 function isIOSWebKit() { return /iP(?:hone|ad|od)/.test(navigator.userAgent) || (/Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints > 1); }
 function sendMessage(type, payload) { if (state.ws?.readyState === WebSocket.OPEN) state.ws.send(JSON.stringify({ type, payload })); }
+function selectedCameraConstraint(lens = $('#lens').value) { return lens.startsWith('device:') ? { deviceId: { exact: lens.slice(7) } } : { facingMode: { ideal: lens } }; }
+function captureMatches(track, width, height, fps) {
+  const settings = track?.getSettings?.() || {}; const actualWidth = Number(settings.width || 0); const actualHeight = Number(settings.height || 0); const actualFps = Number(settings.frameRate || 0);
+  const dimensionsMatch = !actualWidth || !actualHeight || (Math.max(actualWidth, actualHeight) >= Math.max(width, height) && Math.min(actualWidth, actualHeight) >= Math.min(width, height));
+  const fpsMatches = !actualFps || actualFps >= fps - 1;
+  return dimensionsMatch && fpsMatches;
+}
+function captureError(width, height, fps) { return new Error(`Safari nie uruchomiło prawdziwego ${width}×${height} przy ${fps} FPS na wybranym obiektywie.`); }
 
 async function pair() {
   const parts = location.pathname.split('/').filter(Boolean); state.pairToken = parts[0] === 'camera' ? parts[1] || '' : '';
@@ -33,10 +41,10 @@ async function pair() {
 function restoreChoices() { $('#quality').value = localStorage.getItem('tazzioCameraQuality') || 'balanced'; $('#fps').value = localStorage.getItem('tazzioCameraFps') || '0'; $('#lens').value = localStorage.getItem('tazzioCameraLens') || 'environment'; $('#audio').checked = localStorage.getItem('tazzioCameraAudio') === 'true'; }
 function saveChoices() { localStorage.setItem('tazzioCameraQuality', $('#quality').value); localStorage.setItem('tazzioCameraFps', $('#fps').value); localStorage.setItem('tazzioCameraLens', $('#lens').value); localStorage.setItem('tazzioCameraAudio', String($('#audio').checked)); }
 function updateModeNote() { const lan = selectedMode() === 'lan'; $('#mode-note').textContent = lan ? 'LAN: obraz idzie bezpośrednio z iPhone’a do komputera. VPS służy tylko do sparowania urządzeń.' : 'Internet: obraz jest wymuszony przez bezpieczny przekaźnik TURN na VPS — użyj poza domowym Wi‑Fi.'; $('#mode-pill').textContent = lan ? 'LAN DIRECT' : 'VPS RELAY'; $('#mode-pill').classList.toggle('relay', !lan); }
-function selectedVideoConstraints() { const profile = activeProfile(); const fps = requestedFps(); const lens = $('#lens').value; const explicitFps = Number($('#fps').value); const frameRate = explicitFps >= 50 ? { exact: fps } : { ideal: fps, max: fps }; const video = { width: { ideal: profile.width }, height: { ideal: profile.height }, frameRate }; if (lens.startsWith('device:')) video.deviceId = { exact: lens.slice(7) }; else video.facingMode = { ideal: lens }; return video; }
+function selectedVideoConstraints() { const profile = activeProfile(); const fps = requestedFps(); const explicitFps = Number($('#fps').value); const frameRate = explicitFps >= 50 ? { exact: fps } : { ideal: fps, max: fps }; return { width: { ideal: profile.width }, height: { ideal: profile.height }, frameRate, ...selectedCameraConstraint() }; }
 async function preferH264(transceiver) { if (!transceiver?.setCodecPreferences || !RTCRtpSender.getCapabilities) return; const codecs = RTCRtpSender.getCapabilities('video')?.codecs || []; const h264 = codecs.filter(codec => codec.mimeType.toLowerCase() === 'video/h264'); const rest = codecs.filter(codec => codec.mimeType.toLowerCase() !== 'video/h264'); if (h264.length) transceiver.setCodecPreferences([...h264, ...rest]); }
 async function applyQuality(strict = false) { const sender = state.pc?.getSenders().find(item => item.track?.kind === 'video'); if (!sender) return; const parameters = sender.getParameters(); if (!parameters.encodings?.length) parameters.encodings = [{}]; parameters.encodings[0].maxBitrate = targetBitrate(); parameters.encodings[0].maxFramerate = requestedFps(); parameters.encodings[0].scaleResolutionDownBy = 1; parameters.degradationPreference = 'maintain-resolution'; try { await sender.setParameters(parameters); } catch (error) { if (strict) throw new Error('Safari nie pozwoliło zmienić jakości nadajnika WebRTC.'); } }
-async function restoreFocus(track) { const modes = track?.getCapabilities?.().focusMode; if (!Array.isArray(modes) || !modes.length) return; const preferred = modes.includes(state.focusMode) ? state.focusMode : modes.includes('continuous') ? 'continuous' : ''; if (!preferred) return; try { await track.applyConstraints({ advanced: [{ focusMode: preferred }] }); state.focusMode = preferred; } catch {} }
+async function restoreFocus(track, preferContinuous = false) { const modes = track?.getCapabilities?.().focusMode; if (!Array.isArray(modes) || !modes.length) return; const preferred = preferContinuous && modes.includes('continuous') ? 'continuous' : modes.includes(state.focusMode) ? state.focusMode : modes.includes('continuous') ? 'continuous' : ''; if (!preferred) return; try { await track.applyConstraints({ advanced: [{ focusMode: preferred }] }); state.focusMode = preferred; } catch {} }
 async function populateCameras() { const devices = (await navigator.mediaDevices.enumerateDevices()).filter(device => device.kind === 'videoinput'); const existing = new Set([...$('#lens').options].map(option => option.value)); devices.forEach((device, index) => { const value = `device:${device.deviceId}`; if (existing.has(value)) return; const option = document.createElement('option'); option.value = value; option.textContent = device.label || `Kamera ${index + 1}`; $('#lens').append(option); }); return devices; }
 function updateCapabilities() { const track = state.stream?.getVideoTracks()[0]; const caps = track?.getCapabilities?.() || {}; const reportedMax = Number(caps.frameRate?.max || 0); const selectableMax = isIOSWebKit() ? Math.max(60, reportedMax) : reportedMax; for (const option of $('#fps').options) { if (option.value === '0') continue; option.disabled = selectableMax > 0 && Number(option.value) > selectableMax; } }
 
@@ -61,7 +69,7 @@ async function cameraCapabilities(videoOverride = {}) {
   if (caps.frameRate && Number.isFinite(Number(caps.frameRate.max))) {
     const min = Number(caps.frameRate.min || 1); const max = Number(caps.frameRate.max); const current = Math.round(Number(settings.frameRate || 0));
     const selectableMax = isIOSWebKit() ? Math.max(60, max) : max;
-    const values = [...new Set([24, 25, 30, 50, 60, 90, 120, 144, 240, current].filter(value => value >= min && value <= selectableMax))].sort((a, b) => a - b);
+    const values = [30, 60].filter(value => value >= min && value <= selectableMax);
     if (values.length) controls.frameRate = { type: 'enum', values, value: current || values[0], max: selectableMax, reportedMax: max };
   }
   controls.quality = { type: 'enum', values: Object.keys(profiles), value: $('#quality').value };
@@ -79,14 +87,18 @@ async function replaceVideoTrack(video, lensValue = '') {
   try { if (sender) await sender.replaceTrack(newTrack); if (oldTrack) { state.stream.removeTrack(oldTrack); oldTrack.stop(); } state.stream.addTrack(newTrack); $('#preview').srcObject = state.stream; if (lensValue) $('#lens').value = lensValue; saveChoices(); updateCapabilities(); await applyQuality(); return newTrack; }
   catch (error) { newTrack.stop(); throw error; }
 }
-async function reopenVideoTrack(candidates, lensValue = '') {
+async function reopenVideoTrack(candidates, lensValue = '', expected = null) {
   const oldTrack = state.stream?.getVideoTracks()[0]; if (!oldTrack) throw new Error('Kamera nie jest uruchomiona.');
   const sender = state.pc?.getSenders().find(item => item.track?.kind === 'video');
   const oldSettings = oldTrack.getSettings?.() || {};
   state.stream.removeTrack(oldTrack); oldTrack.stop();
   let newTrack; let lastError;
   for (const video of candidates) {
-    try { const fresh = await navigator.mediaDevices.getUserMedia({ video, audio: false }); newTrack = fresh.getVideoTracks()[0]; if (newTrack) break; }
+    try {
+      const fresh = await navigator.mediaDevices.getUserMedia({ video, audio: false }); newTrack = fresh.getVideoTracks()[0];
+      if (newTrack && expected && !captureMatches(newTrack, expected.width, expected.height, expected.fps)) { newTrack.stop(); newTrack = null; lastError = captureError(expected.width, expected.height, expected.fps); continue; }
+      if (newTrack) break;
+    }
     catch (error) { lastError = error; }
   }
   if (!newTrack) {
@@ -99,7 +111,7 @@ async function reopenVideoTrack(candidates, lensValue = '') {
     throw lastError || new Error('Wybrany FPS nie jest dostępny dla tej kamery.');
   }
   if ('contentHint' in newTrack) newTrack.contentHint = 'detail';
-  await restoreFocus(newTrack);
+  await restoreFocus(newTrack, true);
   if (sender) await sender.replaceTrack(newTrack);
   state.stream.addTrack(newTrack); $('#preview').srcObject = state.stream; if (lensValue) $('#lens').value = lensValue; saveChoices(); updateCapabilities(); await applyQuality(true); return newTrack;
 }
@@ -115,10 +127,17 @@ async function setQualityProfile(value) {
   $('#quality').value = name;
   const fpsOption = [...$('#fps').options].find(option => Number(option.value) === currentFps); if (fpsOption) $('#fps').value = fpsOption.value;
   saveChoices();
-  const video = selectedVideoConstraints(); const deviceId = track.getSettings?.().deviceId;
-  if (deviceId) { delete video.facingMode; video.deviceId = { exact: deviceId }; }
-  try { await track.applyConstraints(video); }
-  catch { await replaceVideoTrack(video, deviceId ? `device:${deviceId}` : ''); }
+  const video = selectedVideoConstraints(); const lens = $('#lens').value; const profile = activeProfile();
+  if (currentFps >= 50) {
+    const camera = selectedCameraConstraint(lens); const exactFrameRate = { exact: currentFps }; const expected = { width: profile.width, height: profile.height, fps: currentFps };
+    await reopenVideoTrack([
+      { ...camera, width: { exact: profile.width }, height: { exact: profile.height }, frameRate: exactFrameRate },
+      { ...camera, width: { ideal: profile.width }, height: { ideal: profile.height }, frameRate: exactFrameRate },
+    ], lens.startsWith('device:') ? lens : '', expected);
+  } else {
+    try { await track.applyConstraints(video); }
+    catch { await replaceVideoTrack(video, lens.startsWith('device:') ? lens : ''); }
+  }
   await applyQuality(true);
 }
 async function setFrameRate(value) {
@@ -126,23 +145,19 @@ async function setFrameRate(value) {
   let track = state.stream?.getVideoTracks()[0];
   if (!track) throw new Error('Kamera nie jest uruchomiona.');
   const option = [...$('#fps').options].find(item => Number(item.value) === requested); if (option) $('#fps').value = option.value;
-  const video = selectedVideoConstraints(); const deviceId = track.getSettings?.().deviceId;
-  if (deviceId) { delete video.facingMode; video.deviceId = { exact: deviceId }; }
+  const video = selectedVideoConstraints(); const lens = $('#lens').value;
   if (requested >= 50) {
-    const camera = deviceId ? { deviceId: { exact: deviceId } } : { facingMode: { ideal: $('#lens').value } };
-    const exactFrameRate = { exact: requested };
-    const profile = activeProfile();
+    const camera = selectedCameraConstraint(lens); const exactFrameRate = { exact: requested }; const profile = activeProfile(); const expected = { width: profile.width, height: profile.height, fps: requested };
     track = await reopenVideoTrack([
+      { ...camera, width: { exact: profile.width }, height: { exact: profile.height }, frameRate: exactFrameRate },
       { ...camera, width: { ideal: profile.width }, height: { ideal: profile.height }, frameRate: exactFrameRate },
-      { ...camera, width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: exactFrameRate },
-      { ...camera, frameRate: exactFrameRate },
-    ], deviceId ? `device:${deviceId}` : '');
+    ], lens.startsWith('device:') ? lens : '', expected);
   }
   else try { await track.applyConstraints(video); }
-  catch { track = await replaceVideoTrack(video, deviceId ? `device:${deviceId}` : ''); }
+  catch { track = await replaceVideoTrack(video, lens.startsWith('device:') ? lens : ''); }
   let actual = Number(track.getSettings?.().frameRate || 0);
   if (actual && actual < requested - 1) {
-    track = await replaceVideoTrack(video, deviceId ? `device:${deviceId}` : ''); actual = Number(track.getSettings?.().frameRate || 0);
+    track = await replaceVideoTrack(video, lens.startsWith('device:') ? lens : ''); actual = Number(track.getSettings?.().frameRate || 0);
   }
   await restoreFocus(track);
   await applyQuality(true);
@@ -177,7 +192,9 @@ async function start() {
   if (!state.ready || state.stream) return; saveChoices(); $('#start').disabled = true; setStatus('Uruchamianie kamery…');
   try {
     const audio = $('#audio').checked ? { echoCancellation: false, noiseSuppression: false, autoGainControl: false } : false;
-    state.stream = await navigator.mediaDevices.getUserMedia({ video: selectedVideoConstraints(), audio }); const videoTrack = state.stream.getVideoTracks()[0]; if ('contentHint' in videoTrack) videoTrack.contentHint = 'detail'; await restoreFocus(videoTrack);
+    state.stream = await navigator.mediaDevices.getUserMedia({ video: selectedVideoConstraints(), audio }); const videoTrack = state.stream.getVideoTracks()[0]; if ('contentHint' in videoTrack) videoTrack.contentHint = 'detail';
+    const explicitFps = Number($('#fps').value); const profile = activeProfile(); if (explicitFps >= 50 && !captureMatches(videoTrack, profile.width, profile.height, explicitFps)) throw captureError(profile.width, profile.height, explicitFps);
+    await restoreFocus(videoTrack, true);
     $('#preview').srcObject = state.stream; $('#placeholder').hidden = true; $('#preview').onresize = () => reportCameraCapabilities('camera-state').catch(() => {}); await populateCameras(); updateCapabilities();
     const config = { iceServers: selectedIceServers() }; if (selectedMode() === 'internet') config.iceTransportPolicy = 'relay'; state.pc = new RTCPeerConnection(config);
     let videoTransceiver; for (const track of state.stream.getTracks()) { const sender = state.pc.addTrack(track, state.stream); if (track.kind === 'video') videoTransceiver = state.pc.getTransceivers().find(item => item.sender === sender); }
