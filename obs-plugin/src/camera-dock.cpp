@@ -5,6 +5,7 @@
 #include <obs-module.h>
 
 #include <QApplication>
+#include <QAbstractItemView>
 #include <QClipboard>
 #include <QCheckBox>
 #include <QComboBox>
@@ -23,6 +24,7 @@
 #include <QPushButton>
 #include <QSettings>
 #include <QScrollArea>
+#include <QSet>
 #include <QSignalBlocker>
 #include <QSlider>
 #include <QSizePolicy>
@@ -320,22 +322,33 @@ void register_iphone_camera_dock()
 
     const auto update_controls = [=](const QJsonObject &capabilities) {
         bool any = false;
-        for (auto *row : control_rows) controls_form->setRowVisible(row, false);
+        QSet<QString> visible_controls;
 
         const auto devices = capabilities.value(QStringLiteral("devices")).toArray();
         if (devices.size() > 1) {
-            const QSignalBlocker blocker(camera_select);
-            camera_select->clear();
+            visible_controls.insert(QStringLiteral("camera"));
             const auto active = capabilities.value(QStringLiteral("activeDeviceId")).toString();
             int selected = 0;
-            for (const auto &item : devices) {
-                const auto device = item.toObject();
-                camera_select->addItem(device.value(QStringLiteral("label")).toString(QStringLiteral("Kamera")),
-                                       device.value(QStringLiteral("id")).toString());
-                if (device.value(QStringLiteral("id")).toString() == active) selected = camera_select->count() - 1;
+            bool rebuild = camera_select->count() != devices.size();
+            for (int index = 0; index < devices.size(); ++index) {
+                const auto device = devices.at(index).toObject();
+                const auto id = device.value(QStringLiteral("id")).toString();
+                if (!rebuild && camera_select->itemData(index).toString() != id) rebuild = true;
+                if (id == active) selected = index;
             }
-            camera_select->setCurrentIndex(selected);
-            controls_form->setRowVisible(camera_select, true); any = true;
+            if (!camera_select->view()->isVisible()) {
+                const QSignalBlocker blocker(camera_select);
+                if (rebuild) {
+                    camera_select->clear();
+                    for (const auto &item : devices) {
+                        const auto device = item.toObject();
+                        camera_select->addItem(device.value(QStringLiteral("label")).toString(QStringLiteral("Kamera")),
+                                               device.value(QStringLiteral("id")).toString());
+                    }
+                }
+                camera_select->setCurrentIndex(selected);
+            }
+            any = true;
         }
 
         const auto controls = capabilities.value(QStringLiteral("controls")).toObject();
@@ -344,15 +357,28 @@ void register_iphone_camera_dock()
             const auto description = controls.value(it.key()).toObject();
             const auto values = description.value(QStringLiteral("values")).toArray();
             if (values.isEmpty()) continue;
-            auto *combo = it.value(); const QSignalBlocker blocker(combo); combo->clear();
+            visible_controls.insert(it.key());
+            auto *combo = it.value();
             int selected = 0; const auto current = description.value(QStringLiteral("value"));
-            for (const auto &item : values) {
-                const auto label = it.key() == QStringLiteral("frameRate")
-                    ? QStringLiteral("%1 FPS").arg(item.toInt()) : camera_value_name(item.toString());
-                combo->addItem(label, item.toVariant());
-                if (item == current) selected = combo->count() - 1;
+            bool rebuild = combo->count() != values.size();
+            for (int index = 0; index < values.size(); ++index) {
+                const auto item = values.at(index);
+                if (!rebuild && combo->itemData(index) != item.toVariant()) rebuild = true;
+                if (item == current) selected = index;
             }
-            combo->setCurrentIndex(selected); controls_form->setRowVisible(combo, true); any = true;
+            if (!combo->view()->isVisible()) {
+                const QSignalBlocker blocker(combo);
+                if (rebuild) {
+                    combo->clear();
+                    for (const auto &item : values) {
+                        const auto label = it.key() == QStringLiteral("frameRate")
+                            ? QStringLiteral("%1 FPS").arg(item.toInt()) : camera_value_name(item.toString());
+                        combo->addItem(label, item.toVariant());
+                    }
+                }
+                combo->setCurrentIndex(selected);
+            }
+            any = true;
         }
 
         for (auto it = range_controls.cbegin(); it != range_controls.cend(); ++it) {
@@ -361,18 +387,22 @@ void register_iphone_camera_dock()
             const auto minimum = description.value(QStringLiteral("min")).toDouble();
             const auto maximum = description.value(QStringLiteral("max")).toDouble();
             const auto current = description.value(QStringLiteral("value")).toDouble();
+            visible_controls.insert(it.key());
             auto *slider = it.value(); const QSignalBlocker blocker(slider);
             slider->setProperty("cameraMinimum", minimum); slider->setProperty("cameraMaximum", maximum);
             slider->setValue(maximum > minimum ? qRound((current - minimum) * 1000.0 / (maximum - minimum)) : 0);
             range_values.value(it.key())->setText(QString::number(current, 'f', qAbs(current) < 10 ? 2 : 0));
-            controls_form->setRowVisible(control_rows.value(it.key()), true); any = true;
+            any = true;
         }
 
         if (controls.contains(QStringLiteral("torch"))) {
+            visible_controls.insert(QStringLiteral("torch"));
             const QSignalBlocker blocker(torch);
             torch->setChecked(controls.value(QStringLiteral("torch")).toObject().value(QStringLiteral("value")).toBool());
-            controls_form->setRowVisible(torch, true); any = true;
+            any = true;
         }
+        for (auto it = control_rows.cbegin(); it != control_rows.cend(); ++it)
+            controls_form->setRowVisible(it.value(), visible_controls.contains(it.key()));
         controls_note->setText(any ? QStringLiteral("Widoczne są tylko funkcje udostępnione przez ten iPhone i Safari.")
                                    : QStringLiteral("Ten iPhone nie udostępnił dodatkowych ustawień kamery w Safari."));
         controls_group->show();
