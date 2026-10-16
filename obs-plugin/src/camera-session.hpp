@@ -26,6 +26,7 @@ public:
     ~CameraSession() override;
 
     void set_server(QUrl server);
+    void check_for_updates();
     void create_pairing(const QString &mode);
     void send_camera_command(const QString &control, const QJsonValue &value);
     void disconnect_session();
@@ -38,6 +39,8 @@ signals:
     void cameraCapabilitiesChanged(QJsonObject capabilities);
     void cameraStateChanged(QJsonObject state);
     void cameraCommandFinished(QString id, bool ok, QString message);
+    void updateCheckFinished(QString latestVersion, bool available, QUrl downloadUrl);
+    void updateCheckFailed(QString message);
     void errorOccurred(QString message);
 
 private:

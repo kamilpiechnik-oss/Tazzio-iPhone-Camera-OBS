@@ -8,6 +8,7 @@
 #include <QClipboard>
 #include <QCheckBox>
 #include <QComboBox>
+#include <QDesktopServices>
 #include <QFormLayout>
 #include <QGuiApplication>
 #include <QGroupBox>
@@ -25,6 +26,7 @@
 #include <QSlider>
 #include <QSizePolicy>
 #include <QUrl>
+#include <QTimer>
 #include <QVBoxLayout>
 #include <QWidget>
 #include <QtMath>
@@ -140,6 +142,12 @@ void register_iphone_camera_dock()
     auto *session = new tazzio::CameraSession(dock);
 
     auto *title = new QLabel(QStringLiteral("TAZZIO · IPHONE CAMERA"));
+    const auto installed_version = QStringLiteral(TAZZIO_PLUGIN_VERSION);
+    auto *version_status = new QLabel(QStringLiteral("Wersja %1 · sprawdzanie aktualizacji…").arg(installed_version));
+    version_status->setWordWrap(true);
+    auto *check_updates = new QPushButton(QStringLiteral("Sprawdź aktualizacje"));
+    auto *install_update = new QPushButton(QStringLiteral("Pobierz aktualizację"));
+    install_update->hide();
     auto *description = new QLabel(QStringLiteral(
         "Wybierz trasę w Docku. LAN przesyła obraz bezpośrednio do źródła Przeglądarka w OBS; Internet używa przekaźnika VPS."));
     description->setWordWrap(true);
@@ -232,7 +240,13 @@ void register_iphone_camera_dock()
     auto *url_row = new QHBoxLayout;
     url_row->addWidget(url, 1);
     url_row->addWidget(copy);
+    auto *update_row = new QHBoxLayout;
+    update_row->addWidget(check_updates);
+    update_row->addWidget(install_update);
+    update_row->addStretch();
     layout->addWidget(title);
+    layout->addWidget(version_status);
+    layout->addLayout(update_row);
     layout->addWidget(description);
     layout->addWidget(status);
     layout->addWidget(stats);
@@ -244,6 +258,34 @@ void register_iphone_camera_dock()
     layout->addWidget(disconnect);
     layout->addWidget(controls_group);
     layout->addStretch();
+
+    QObject::connect(check_updates, &QPushButton::clicked, dock, [=] {
+        check_updates->setEnabled(false);
+        version_status->setText(QStringLiteral("Wersja %1 · sprawdzanie aktualizacji…").arg(installed_version));
+        session->check_for_updates();
+    });
+    QObject::connect(install_update, &QPushButton::clicked, dock, [=] {
+        const auto update_url = install_update->property("updateUrl").toUrl();
+        if (update_url.isValid()) QDesktopServices::openUrl(update_url);
+    });
+    QObject::connect(session, &tazzio::CameraSession::updateCheckFinished, dock,
+                     [=](const QString &latest, bool available, const QUrl &download_url) {
+                         check_updates->setEnabled(true);
+                         if (available) {
+                             version_status->setText(QStringLiteral("Dostępna aktualizacja: %1 (zainstalowana: %2)").arg(latest, installed_version));
+                             install_update->setText(QStringLiteral("Pobierz aktualizację %1").arg(latest));
+                             install_update->setProperty("updateUrl", download_url);
+                             install_update->show();
+                         } else {
+                             version_status->setText(QStringLiteral("Wersja %1 · aktualna").arg(installed_version));
+                             install_update->hide();
+                         }
+                     });
+    QObject::connect(session, &tazzio::CameraSession::updateCheckFailed, dock, [=](const QString &) {
+        check_updates->setEnabled(true);
+        version_status->setText(QStringLiteral("Wersja %1 · nie udało się sprawdzić aktualizacji").arg(installed_version));
+        install_update->hide();
+    });
 
     QObject::connect(camera_select, qOverload<int>(&QComboBox::activated), dock, [=](int index) {
         const auto device_id = camera_select->itemData(index).toString();
@@ -406,4 +448,5 @@ void register_iphone_camera_dock()
     });
 
     obs_frontend_add_dock_by_id("tazzio-iphone-camera-dock", "Tazzio iPhone Camera", dock);
+    QTimer::singleShot(1000, session, [session] { session->check_for_updates(); });
 }

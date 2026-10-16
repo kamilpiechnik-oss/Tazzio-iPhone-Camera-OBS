@@ -8,10 +8,20 @@ import { randomId, signToken, turnCredentials, verifyToken } from './security.js
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const frontend = path.join(root, 'frontend');
 const downloads = path.join(frontend, 'downloads');
+const currentVersion = '1.0.4';
+const updatePage = 'https://tazzio.pl/pluginy/iphone-camera-obs/';
 const json = (res, status, value) => { const body = JSON.stringify(value); res.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'content-length': Buffer.byteLength(body), 'cache-control': 'no-store' }); res.end(body); };
 const fail = (res, status, code, message) => json(res, status, { error: code, message });
 const readBody = req => new Promise((resolve, reject) => { let body = ''; req.on('data', chunk => { body += chunk; if (body.length > 32768) reject(new Error('body_too_large')); }); req.on('end', () => { try { resolve(body ? JSON.parse(body) : {}); } catch { reject(new Error('invalid_json')); } }); req.on('error', reject); });
 const contentType = file => file.endsWith('.html') ? 'text/html; charset=utf-8' : file.endsWith('.js') ? 'text/javascript; charset=utf-8' : file.endsWith('.css') ? 'text/css; charset=utf-8' : 'application/octet-stream';
+const compareVersions = (left, right) => {
+  const a = String(left).split('.').map(value => Number.parseInt(value, 10) || 0);
+  const b = String(right).split('.').map(value => Number.parseInt(value, 10) || 0);
+  for (let index = 0; index < Math.max(a.length, b.length); index += 1) {
+    if ((a[index] || 0) !== (b[index] || 0)) return (a[index] || 0) - (b[index] || 0);
+  }
+  return 0;
+};
 
 export function createCameraServer(config = {}) {
   const cfg = {
@@ -52,7 +62,15 @@ export function createCameraServer(config = {}) {
     Object.entries(headers).forEach(([key, value]) => res.setHeader(key, value));
     const url = new URL(req.url, 'http://localhost');
     try {
-      if (req.method === 'GET' && url.pathname === '/api/health') return json(res, 200, { status: 'ok', product: 'tazzio-iphone-camera', version: '1.0.4' });
+      if (req.method === 'GET' && url.pathname === '/api/health') return json(res, 200, { status: 'ok', product: 'tazzio-iphone-camera', version: currentVersion });
+      if (req.method === 'GET' && url.pathname === '/api/camera/update') {
+        const installed = url.searchParams.get('current') || '0.0.0';
+        return json(res, 200, {
+          latest_version: currentVersion,
+          update_available: compareVersions(installed, currentVersion) < 0,
+          download_url: updatePage,
+        });
+      }
       if (req.method === 'POST' && url.pathname === '/api/camera/sessions') {
         if (!cfg.turnSecret) return fail(res, 503, 'turn_unconfigured', 'TURN nie jest skonfigurowany.');
         const body = await readBody(req);

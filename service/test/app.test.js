@@ -39,6 +39,20 @@ test('health identifies only iPhone Camera', async () => {
   } finally { await app.close(); }
 });
 
+test('update endpoint compares installed plugin version and returns the stable download page', async () => {
+  const app = createCameraServer({ port: 0, host: '127.0.0.1' });
+  await app.listen();
+  const base = `http://127.0.0.1:${app.server.address().port}`;
+  try {
+    const oldVersion = await fetch(`${base}/api/camera/update?current=1.0.3`).then(response => response.json());
+    assert.deepEqual(oldVersion, { latest_version: '1.0.4', update_available: true, download_url: 'https://tazzio.pl/pluginy/iphone-camera-obs/' });
+    const currentVersion = await fetch(`${base}/api/camera/update?current=1.0.4`).then(response => response.json());
+    assert.equal(currentVersion.update_available, false);
+    const futureVersion = await fetch(`${base}/api/camera/update?current=2.0.0`).then(response => response.json());
+    assert.equal(futureVersion.update_available, false);
+  } finally { await app.close(); }
+});
+
 test('dock-selected mode reaches camera and browser receiver with restored quality profiles', async () => {
   const app = createCameraServer({ port: 0, host: '127.0.0.1' });
   await app.listen();

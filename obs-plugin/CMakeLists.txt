@@ -43,6 +43,7 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
 )
 target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE src vendor/qrcodegen)
 target_compile_features(${CMAKE_PROJECT_NAME} PRIVATE cxx_std_20)
+target_compile_definitions(${CMAKE_PROJECT_NAME} PRIVATE TAZZIO_PLUGIN_VERSION=\"${PROJECT_VERSION}\")
 target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE
   OBS::libobs OBS::obs-frontend-api Qt6::Core Qt6::Widgets Qt6::Network
   LibDataChannel::LibDataChannelStatic FFmpeg::avcodec FFmpeg::avutil FFmpeg::swscale

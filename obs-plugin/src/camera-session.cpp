@@ -59,6 +59,36 @@ QUrl CameraSession::api_url(const QString &path) const
     return url;
 }
 
+void CameraSession::check_for_updates()
+{
+    auto url = api_url(QStringLiteral("/camera/update"));
+    QUrlQuery query;
+    query.addQueryItem(QStringLiteral("current"), QStringLiteral(TAZZIO_PLUGIN_VERSION));
+    url.setQuery(query);
+    QNetworkRequest request(url);
+    request.setRawHeader("Cache-Control", "no-cache");
+    auto *reply = network_->get(request);
+    connect(reply, &QNetworkReply::finished, this, [this, reply] {
+        const auto object = QJsonDocument::fromJson(reply->readAll()).object();
+        if (reply->error() != QNetworkReply::NoError) {
+            emit updateCheckFailed(reply->errorString());
+            reply->deleteLater();
+            return;
+        }
+        const auto latest = object.value(QStringLiteral("latest_version")).toString();
+        const auto available = object.value(QStringLiteral("update_available")).toBool();
+        const QUrl download_url(object.value(QStringLiteral("download_url")).toString());
+        const auto trusted_download = download_url.scheme() == QStringLiteral("https") &&
+                                      (download_url.host() == QStringLiteral("tazzio.pl") ||
+                                       download_url.host().endsWith(QStringLiteral(".tazzio.pl")));
+        if (latest.isEmpty() || download_url.isEmpty() || !download_url.isValid() || !trusted_download)
+            emit updateCheckFailed(QStringLiteral("Serwer aktualizacji zwrócił niepełne dane."));
+        else
+            emit updateCheckFinished(latest, available, download_url);
+        reply->deleteLater();
+    });
+}
+
 void CameraSession::create_pairing(const QString &mode)
 {
     disconnect_session();
@@ -67,7 +97,7 @@ void CameraSession::create_pairing(const QString &mode)
     request.setHeader(QNetworkRequest::ContentTypeHeader, QStringLiteral("application/json"));
     const auto requested_mode = mode == QStringLiteral("internet") ? QStringLiteral("internet") : QStringLiteral("lan");
     const auto body = QJsonDocument(QJsonObject{{QStringLiteral("mode"), requested_mode},
-                                                 {QStringLiteral("client_version"), QStringLiteral("1.0.4")}})
+                                                 {QStringLiteral("client_version"), QStringLiteral(TAZZIO_PLUGIN_VERSION)}})
                           .toJson(QJsonDocument::Compact);
     auto *reply = network_->post(request, body);
     connect(reply, &QNetworkReply::finished, this, [this, reply] {

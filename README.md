@@ -15,6 +15,8 @@ W obu trybach plugin tworzy źródło Przeglądarka w OBS, dzięki czemu odbiór
 
 Dock pozwala zmieniać FPS, obiektyw, zoom, latarkę, focus, ekspozycję, jasność, ISO i balans bieli, o ile Safari zwróci daną funkcję w możliwościach aktywnej kamery. Zmiana FPS ustawia zarówno kamerę, jak i ograniczenie nadajnika WebRTC, a Dock pokazuje faktycznie raportowany FPS. Obrót telefonu automatycznie aktualizuje wymiary źródła Browser Source, więc źródło przełącza proporcje między poziomymi i pionowymi. Safari i sprzęt iPhone'a mogą ograniczyć faktycznie osiąganą rozdzielczość, liczbę klatek lub dostępność ręcznych ustawień.
 
+Dock automatycznie sprawdza wersję po uruchomieniu i pozwala ponowić sprawdzanie ręcznie. Jeśli dostępna jest nowsza wersja, pokazuje przycisk prowadzący do oficjalnej strony pobierania instalatora. Aktualizacja nie uruchamia się bez kliknięcia użytkownika; przed instalacją należy zamknąć OBS.
+
 Plugin jest publikowany pod `https://tazzio.pl/pluginy/iphone-camera-obs/`, a jego wydzielony backend korzysta z technicznych tras `tazzio.pl`. TURN może być współdzielony infrastrukturalnie z innymi usługami, ale sesje, tokeny, backend, instalator i branding są oddzielne.
 
 ## Walidacja
