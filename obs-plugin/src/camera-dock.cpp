@@ -15,6 +15,7 @@
 #include <QHash>
 #include <QHBoxLayout>
 #include <QImage>
+#include <QJsonArray>
 #include <QLabel>
 #include <QLayout>
 #include <QLineEdit>
